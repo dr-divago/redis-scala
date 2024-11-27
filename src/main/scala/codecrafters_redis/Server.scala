@@ -11,6 +11,9 @@ object Server {
     //
     val serverSocket = new ServerSocket()
     serverSocket.bind(new InetSocketAddress("localhost", 6379))
-    val clientSocket = serverSocket.accept() // wait for client
+    val clientSocket = serverSocket.accept()
+
+    val out = clientSocket.getOutputStream
+    out.write("+PONG\r\n".getBytes)
   }
 }
