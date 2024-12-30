@@ -14,6 +14,7 @@ object Server {
     val clientSocket = serverSocket.accept()
 
     val out = clientSocket.getOutputStream
-    out.write("+PONG\r\n+PONG\r\n".getBytes)
+    while (!serverSocket.isClosed)
+      out.write("+PONG\r\n".getBytes)
   }
 }
