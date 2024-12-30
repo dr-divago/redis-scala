@@ -14,12 +14,10 @@ object Server {
     val in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
     val out = clientSocket.getOutputStream
 
-    var line: String = ""
-    while ((line = in.readLine()) != null) {
-      if (line == "PING") {
-        out.write("+PONG\r\n".getBytes())
-      }
-    }
+    in.lines()
+      .filter(_ == "PING")
+      .forEach(_ => out.write("+PONG\r\n".getBytes()))
+
     clientSocket.close()
   }
 }
