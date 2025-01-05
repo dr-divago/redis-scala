@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/codecrafter-redis.iml" filepath="$PROJECT_DIR$/.idea/modules/codecrafter-redis.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/codecrafter-redis.codecrafter-redis-build.iml" filepath="$PROJECT_DIR$/.idea/modules/codecrafter-redis.codecrafter-redis-build.iml" />
+    </modules>
+  </component>
+</project>

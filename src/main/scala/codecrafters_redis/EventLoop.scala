@@ -20,23 +20,19 @@ object EventLoop {
       val clientSocket = serverSocket.accept()
       if (clientSocket != null) {
         taskQueue.addTask(new Task(clientSocket.socket(), _ => "+PONG\r\n"))
-        this.processQueue();
       }
-    }
-    isRunning
-  }
-
-  private def processQueue(): Unit = {
-    while (this.isRunning && this.taskQueue.taskQueue.nonEmpty) {
-      val (task, _) = this.taskQueue.taskQueue.dequeue
-      if (task.in.ready()) {
-        val command = task.in.readLine()
-        val response = task.callBack(command)
-        task.socket.getOutputStream.write(response.getBytes)
-      }
-      else {
+      if (taskQueue.isNonEmpty) {
+        val task = taskQueue.nextTask()
+        if (task.in.ready()) {
+          val command = task.in.readLine()
+          if (command.equals("PING")) {
+            val response = task.callBack(command)
+            task.socket.getOutputStream.write(response.getBytes)
+          }
+        }
         taskQueue.addTask(task)
       }
     }
+    isRunning
   }
 }
