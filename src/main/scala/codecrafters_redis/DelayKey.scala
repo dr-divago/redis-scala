@@ -8,7 +8,7 @@ case class NeverExpires() extends Expiration
 
 case class DelayKey(key: String, delayForExpiration: Expiration, map: Map[String, String]) extends Delayed {
   private val expirationTime: Long = delayForExpiration match {
-    case ExpiresAt(time) => time
+    case ExpiresAt(time) => time + System.currentTimeMillis
     case NeverExpires() => Long.MaxValue
   }
 

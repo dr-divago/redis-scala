@@ -94,9 +94,9 @@ object EventLoop {
   }
 
   private def handleGetCommand(client: SocketChannel, key: String): Unit = {
-    val value = inMemoryDB.get(key)
+    val value : Option[String] = inMemoryDB.get(key)
     value match {
-      case Some(v) => client.write(ByteBuffer.wrap(("$" + v.length + "\r\n" + value + "\r\n").getBytes))
+      case Some(v) => client.write(ByteBuffer.wrap(("$" + v.length + "\r\n" + v + "\r\n").getBytes))
       case None => client.write(ByteBuffer.wrap("$-1\r\n".getBytes))
     }
   }
