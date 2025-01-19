@@ -1,7 +1,7 @@
 package codecrafters_redis
 
 import java.io.IOException
-import java.net.{InetSocketAddress, Socket}
+import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.util.concurrent.ConcurrentHashMap
@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 object EventLoop {
   private val taskQueue: TaskQueue = TaskQueue()
   private val clientBuffers = new ConcurrentHashMap[SocketChannel, StringBuilder]()
-  private var db: Map[String, String] = Map.empty
+  private val inMemoryDB = new InMemoryDB
 
   def start(): Unit = {
     val serverSocket = ServerSocketChannel.open()
@@ -85,7 +85,7 @@ object EventLoop {
         value.head match {
           case "PING" => client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
           case "ECHO" => client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
-          case "SET" => handleSetCommand(client, value(1), value(2))
+          case "SET" => handleSetCommand(client, value)
           case "GET" => handleGetCommand(client, value(1))
         }
         taskQueue.addTask(new Task(task.socket, nextState))
@@ -93,13 +93,24 @@ object EventLoop {
     }
   }
 
-  private def handleGetCommand(client: SocketChannel, key: String) = {
-    val value = db(key)
-    client.write(ByteBuffer.wrap(("$"+value.length+"\r\n"+value+"\r\n").getBytes))
+  private def handleGetCommand(client: SocketChannel, key: String): Unit = {
+    val value = inMemoryDB.get(key)
+    value match {
+      case Some(v) => client.write(ByteBuffer.wrap(("$" + v.length + "\r\n" + value + "\r\n").getBytes))
+      case None => client.write(ByteBuffer.wrap("$-1\r\n".getBytes))
+    }
   }
 
-  private def handleSetCommand(client: SocketChannel, key : String, value : String) = {
-    db = db + (key -> value)
-    client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
+  private def handleSetCommand(client: SocketChannel, value: Vector[String]) = {
+    value.length match {
+      case 3 =>
+        inMemoryDB.add(value(1), value(2), NeverExpires())
+        client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
+      case 5 =>
+        val expireAt = value(3)
+        val milliseconds = value(4)
+        client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
+        inMemoryDB.add(value(1), value(2), ExpiresAt(milliseconds.toLong))
+    }
   }
 }
