@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.util.concurrent.ConcurrentHashMap
 
-object EventLoop {
+class EventLoop(config: Config) {
   private val taskQueue: TaskQueue = TaskQueue()
   private val clientBuffers = new ConcurrentHashMap[SocketChannel, StringBuilder]()
   private val inMemoryDB = new InMemoryDB
@@ -87,10 +87,17 @@ object EventLoop {
           case "ECHO" => client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
           case "SET" => handleSetCommand(client, value)
           case "GET" => handleGetCommand(client, value(1))
+          case "CONFIG GET" => handleConfigGet(client, value(1))
         }
         taskQueue.addTask(new Task(task.socket, nextState))
       case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
     }
+  }
+
+  private def handleConfigGet(client: SocketChannel, param: String) = {
+    println(param)
+    println(config.param1)
+
   }
 
   private def handleGetCommand(client: SocketChannel, key: String): Unit = {
