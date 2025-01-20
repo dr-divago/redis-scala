@@ -87,17 +87,17 @@ class EventLoop(config: Config) {
           case "ECHO" => client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
           case "SET" => handleSetCommand(client, value)
           case "GET" => handleGetCommand(client, value(1))
-          case "CONFIG GET" => handleConfigGet(client, value(1))
+          case "CONFIG" => handleConfigGet(client, value)
         }
         taskQueue.addTask(new Task(task.socket, nextState))
       case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
     }
   }
 
-  private def handleConfigGet(client: SocketChannel, param: String) = {
-    println(param)
+  private def handleConfigGet(client: SocketChannel, value: Vector[String]) = {
+    println(value)
     println(config.param1)
-
+    println(config.param2)
   }
 
   private def handleGetCommand(client: SocketChannel, key: String): Unit = {
