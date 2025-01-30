@@ -95,9 +95,12 @@ class EventLoop(config: Config) {
   }
 
   private def handleConfigGet(client: SocketChannel, value: Vector[String]) = {
-    println(value)
-    println(config.param1)
-    println(config.param2)
+    val conf = value(2) match {
+      case "dir" => config.dirParam
+      case "dbfilename" => config.dbParam
+    }
+    client.write(ByteBuffer.wrap(("*2\r\n$"+value(2).length+"\r\n"+value(2)+"\r\n$"+conf.length+"\r\n"+conf+"\r\n").getBytes))
+
   }
 
   private def handleGetCommand(client: SocketChannel, key: String): Unit = {

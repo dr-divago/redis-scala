@@ -1,9 +1,7 @@
 package codecrafters_redis
 
-case class Config(
-                          param1: String = "",      // Default values make parameters optional
-                          param2: String = ""
-                        )
+case class Config(dirParam: String = "",
+                  dbParam: String = "")
 
 object Config {
   def fromArgs(args: Array[String]): Config = {
@@ -12,8 +10,8 @@ object Config {
     }.toMap
 
     Config(
-      param1 = argsMap.getOrElse("dir", ""),
-      param2 = argsMap.getOrElse("dbfilename", "")
+      dirParam = argsMap.getOrElse("dir", ""),
+      dbParam = argsMap.getOrElse("dbfilename", "")
     )
   }
 }
