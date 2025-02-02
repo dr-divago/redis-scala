@@ -13,4 +13,5 @@ object RDBDecoder {
       content(8) == 0x31
   }
 
+  def findMetadata(fileByte: Array[Byte]) : Int = fileByte.indexOf(0xfa.toByte, 0)
 }
