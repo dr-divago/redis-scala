@@ -19,7 +19,7 @@ object Decoder {
   }
 
   private def decodeNormal(bytes: Array[Byte]) = {
-    (bytes(0).toInt, bytes.drop(1).map(_.toChar).mkString)
+    (bytes(0).toInt, bytes.slice(1, bytes(0).toInt + 1).map(_.toChar).mkString)
   }
 
   private def decodeLZF(bytes: Array[Byte]) = ???

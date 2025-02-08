@@ -1,9 +1,10 @@
 package codecrafters_redis
 
-import java.io.IOException
+import java.io.{File, IOException}
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
+import java.nio.file.{Files, Paths}
 import java.util.concurrent.ConcurrentHashMap
 
 class EventLoop(config: Config) {
@@ -97,6 +98,9 @@ class EventLoop(config: Config) {
 
   private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
     println("handleKeys")
+    val fileByte = Files.readAllBytes(Paths.get(config.dirParam+File.separator+config.dbParam))
+    val (key, _) = RDBDecoder.readKeyValue(fileByte)
+    client.write(ByteBuffer.wrap(("*1\r\n$"+key.length+"\r\n"+key+"\r\n").getBytes))
   }
 
   private def handleConfigGet(client: SocketChannel, value: Vector[String]) = {

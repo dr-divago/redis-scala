@@ -20,4 +20,10 @@ object RDBDecoder {
     val indexStartHashtable = findStartHashTable(fileByte)
     fileByte(indexStartHashtable+1)
   }
+  def readKeyValue(fileByte: Array[Byte]): (String, String) = {
+    val startHT = findStartHashTable(fileByte)
+    val (sizeKey, key) = Decoder.decodeString(fileByte.drop(startHT+4))
+    val (_, value) = Decoder.decodeString(fileByte.drop(startHT+4+sizeKey+1))
+    (key, value)
+  }
 }
