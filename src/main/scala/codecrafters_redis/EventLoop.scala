@@ -83,15 +83,20 @@ class EventLoop(config: Config) {
     ProtocolParser.parse(line, task.currentState) match {
       case Parsed(value, nextState) =>
         value.head match {
-          case "PING" => client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
-          case "ECHO" => client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
-          case "SET" => handleSetCommand(client, value)
-          case "GET" => handleGetCommand(client, value(1))
-          case "CONFIG" => handleConfigGet(client, value)
+          case "PING"   =>  client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
+          case "ECHO"   =>  client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
+          case "SET"    =>  handleSetCommand(client, value)
+          case "GET"    =>  handleGetCommand(client, value(1))
+          case "CONFIG" =>  handleConfigGet(client, value)
+          case "KEYS"   =>  handleKeysCommand(client, value)
         }
         taskQueue.addTask(new Task(task.socket, nextState))
       case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
     }
+  }
+
+  private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
+    println("handleKeys")
   }
 
   private def handleConfigGet(client: SocketChannel, value: Vector[String]) = {

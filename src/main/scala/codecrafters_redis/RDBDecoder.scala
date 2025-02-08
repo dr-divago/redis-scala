@@ -14,4 +14,10 @@ object RDBDecoder {
   }
 
   def findMetadata(fileByte: Array[Byte]) : Int = fileByte.indexOf(0xfa.toByte, 0)
+  def findStartDB(fileByte: Array[Byte]): Int = fileByte.indexOf(0xfe.toByte, 0)
+  def findStartHashTable(fileByte : Array[Byte]): Int = fileByte.indexOf(0xfb.toByte, 0)
+  def sizeHashTable(fileByte: Array[Byte]) : Int = {
+    val indexStartHashtable = findStartHashTable(fileByte)
+    fileByte(indexStartHashtable+1)
+  }
 }

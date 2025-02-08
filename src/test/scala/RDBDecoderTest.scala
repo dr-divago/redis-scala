@@ -14,5 +14,15 @@ class RDBDecoderTest extends AnyFunSuite {
     val fileByte = Files.readAllBytes(Paths.get("dump.rdb"))
     assert(9 == RDBDecoder.findMetadata(fileByte))
   }
+
+  test("Find index for RDS FE section") {
+    val fileByte = Files.readAllBytes(Paths.get("dump.rdb"))
+    assert(79 == RDBDecoder.findStartDB(fileByte))
+  }
+
+  test("Find size hashtable") {
+    val fileByte = Files.readAllBytes(Paths.get("dump.rdb"))
+    assert(1 == RDBDecoder.sizeHashTable(fileByte))
+  }
 }
 
