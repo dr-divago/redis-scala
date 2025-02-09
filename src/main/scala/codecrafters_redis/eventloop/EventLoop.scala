@@ -100,12 +100,16 @@ class EventLoop(context: Context) {
   }
 
   private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
-    val key = inMemoryDB.keys()
-    val lengthKey = key.map(k => (k.length, k)).toSeq
-    val msg = s"*${lengthKey.size}\r\n"
-    val full = lengthKey.map(p => s"$$${p._1}\r\n${p._2}\r\n").mkString
-    val fullMsg = ByteBuffer.wrap((msg + full).getBytes)
+    val keys = inMemoryDB.keys()
+    val responseMsg = buildKeyCommand(keys)
+    val fullMsg = ByteBuffer.wrap(responseMsg.getBytes)
     client.write(fullMsg)
+  }
+
+  private def buildKeyCommand(keys : Iterable[String]): String = {
+    val sizeOfArrayResponse = s"*${keys.size}\r\n"
+    val elements = keys.map(key => s"$$${key.length}\r\n${key}\r\n").mkString
+    sizeOfArrayResponse + elements.mkString
   }
 
   private def handleConfigGet(client: SocketChannel, value: Vector[String]) = {
