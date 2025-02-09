@@ -1,4 +1,5 @@
 import codecrafters_redis._
+import codecrafters_redis.protocol.Decoder
 import org.scalatest.funsuite.AnyFunSuite
 
 

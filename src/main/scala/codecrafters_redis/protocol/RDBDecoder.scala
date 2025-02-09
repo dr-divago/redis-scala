@@ -1,4 +1,4 @@
-package codecrafters_redis
+package codecrafters_redis.protocol
 
 object RDBDecoder {
   def isRedisRDB(content: Array[Byte]) : Boolean = {

@@ -1,5 +1,8 @@
 package codecrafters_redis
 
+import codecrafters_redis.config.Config
+import codecrafters_redis.eventloop.EventLoop
+
 import java.io.{BufferedReader, InputStreamReader}
 import java.net.{InetSocketAddress, ServerSocket}
 

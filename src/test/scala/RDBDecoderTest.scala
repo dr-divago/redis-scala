@@ -1,4 +1,4 @@
-import codecrafters_redis.RDBDecoder
+import codecrafters_redis.protocol.RDBDecoder
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.nio.file.{Files, Paths}

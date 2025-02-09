@@ -1,4 +1,4 @@
-package codecrafters_redis
+package codecrafters_redis.protocol
 
 sealed trait ParserResult
 case class Parsed(value: Vector[String], nextState: ParseState) extends ParserResult

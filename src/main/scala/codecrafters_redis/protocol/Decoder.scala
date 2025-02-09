@@ -1,4 +1,4 @@
-package codecrafters_redis
+package codecrafters_redis.protocol
 
 import java.nio.{ByteBuffer, ByteOrder}
 

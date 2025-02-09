@@ -1,4 +1,4 @@
-package codecrafters_redis
+package codecrafters_redis.eventloop
 
 import java.net.Socket
 import scala.collection.immutable.Queue

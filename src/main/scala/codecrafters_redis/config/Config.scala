@@ -1,4 +1,4 @@
-package codecrafters_redis
+package codecrafters_redis.config
 
 case class Config(dirParam: String = "",
                   dbParam: String = "")
