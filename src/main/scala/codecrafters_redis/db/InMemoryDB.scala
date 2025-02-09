@@ -1,6 +1,7 @@
 package codecrafters_redis.db
 
-import java.util.concurrent.{ConcurrentHashMap, Executors, TimeUnit}
+import java.util.concurrent.{Executors, TimeUnit}
+import scala.collection.concurrent.TrieMap
 
 sealed trait Expiration
 case class ExpiresAt(time : Long) extends Expiration
@@ -8,7 +9,7 @@ case class NeverExpires() extends Expiration
 
 
 class InMemoryDB {
-  private val db = new ConcurrentHashMap[String, String]()
+  private val db = new TrieMap[String, String]()
   private val scheduler = Executors.newScheduledThreadPool(1)
 
   def add(key: String, value: String, expiration: Expiration): InMemoryDB = {
@@ -25,11 +26,9 @@ class InMemoryDB {
     this
   }
 
-  def get(key: String): Option[String] = Option(db.get(key))
+  def get(key: String): Option[String] = db.get(key)
 
-  def keys() = {
-    db.keys()
-  }
+  def keys() = db.keys
 
   def shutdown(): Unit = {
     scheduler.shutdown()

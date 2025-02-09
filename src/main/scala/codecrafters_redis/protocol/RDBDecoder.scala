@@ -1,5 +1,9 @@
 package codecrafters_redis.protocol
 
+import org.scalactic.TimesOnInt.convertIntToRepeater
+
+import scala.collection.mutable.ListBuffer
+
 object RDBDecoder {
   def isRedisRDB(content: Array[Byte]) : Boolean = {
     content(0) == 0x52 &&
@@ -20,10 +24,17 @@ object RDBDecoder {
     val indexStartHashtable = findStartHashTable(fileByte)
     fileByte(indexStartHashtable+1)
   }
-  def readKeyValue(fileByte: Array[Byte]): (String, String) = {
+  def readKeyValue(fileByte: Array[Byte]): List[(String, String)] = {
     val startHT = findStartHashTable(fileByte)
-    val (sizeKey, key) = Decoder.decodeString(fileByte.drop(startHT+4))
-    val (_, value) = Decoder.decodeString(fileByte.drop(startHT+4+sizeKey+1))
-    (key, value)
+    val sizeHT = sizeHashTable(fileByte)
+    var index = startHT + 4
+    val res =  ListBuffer.empty[(String, String)]
+    sizeHT.times {
+      val (sizeKey, key) = Decoder.decodeString(fileByte.drop(index))
+      val (sizeValue, value) = Decoder.decodeString(fileByte.drop(index+sizeKey+1))
+      index = index + (sizeKey + 1) + (sizeValue + 1) + 1
+      res.append((key, value))
+    }
+    res.toList
   }
 }

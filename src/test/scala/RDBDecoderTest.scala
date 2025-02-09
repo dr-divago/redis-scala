@@ -27,9 +27,16 @@ class RDBDecoderTest extends AnyFunSuite {
 
   test("Find key in the hash") {
     val fileByte = Files.readAllBytes(Paths.get("dump.rdb"))
-    val (key, value) = RDBDecoder.readKeyValue(fileByte)
-    assert("mykey" == key)
-    assert("myval" == value)
+    val l = RDBDecoder.readKeyValue(fileByte)
+    assert("mykey" == l.head._1)
+    assert("myval" == l.head._2)
+  }
+
+  test("Find keys in db with many keys") {
+    val fileByte = Files.readAllBytes(Paths.get("redis-db-key.rdb"))
+    val l = RDBDecoder.readKeyValue(fileByte)
+    assert("mykey" == l.head._1)
+    assert("myval" == l.head._2)
   }
 }
 

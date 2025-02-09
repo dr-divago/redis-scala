@@ -17,7 +17,7 @@ case class Context(config: Config) {
       return inMemoryDB
 
     val fileByte: Array[Byte] = Files.readAllBytes(path)
-    val (key, value) = RDBDecoder.readKeyValue(fileByte)
-    inMemoryDB.add(key, value, NeverExpires())
+    RDBDecoder.readKeyValue(fileByte).foreach(kv => inMemoryDB.add(kv._1, kv._2, NeverExpires()))
+    inMemoryDB
   }
 }
