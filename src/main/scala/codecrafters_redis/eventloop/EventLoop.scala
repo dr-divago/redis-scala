@@ -1,21 +1,19 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.db.{ExpiresAt, InMemoryDB, NeverExpires}
-import codecrafters_redis._
-import codecrafters_redis.config.Config
-import codecrafters_redis.protocol.{Continue, Parsed, ProtocolParser, RDBDecoder, WaitingForCommand}
+import codecrafters_redis.config.Context
+import codecrafters_redis.db.{ExpiresAt, NeverExpires}
+import codecrafters_redis.protocol._
 
-import java.io.{File, IOException}
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
-import java.nio.file.{Files, Paths}
 import java.util.concurrent.ConcurrentHashMap
 
-class EventLoop(config: Config) {
+class EventLoop(context: Context) {
   private val taskQueue: TaskQueue = TaskQueue()
   private val clientBuffers = new ConcurrentHashMap[SocketChannel, StringBuilder]()
-  private val inMemoryDB = new InMemoryDB
+  private val inMemoryDB = context.getDB
 
   def start(): Unit = {
     val serverSocket = ServerSocketChannel.open()
@@ -102,16 +100,16 @@ class EventLoop(config: Config) {
   }
 
   private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
-    println("handleKeys")
-    val fileByte = Files.readAllBytes(Paths.get(config.dirParam+File.separator+config.dbParam))
-    val (key, _) = RDBDecoder.readKeyValue(fileByte)
-    client.write(ByteBuffer.wrap(("*1\r\n$"+key.length+"\r\n"+key+"\r\n").getBytes))
+    val key = inMemoryDB.keys()
+    println(key.hasMoreElements)
+    val element = key.nextElement()
+    client.write(ByteBuffer.wrap(("*1\r\n$"+element.length+"\r\n"+element+"\r\n").getBytes))
   }
 
   private def handleConfigGet(client: SocketChannel, value: Vector[String]) = {
     val conf = value(2) match {
-      case "dir" => config.dirParam
-      case "dbfilename" => config.dbParam
+      case "dir" => context.config.dirParam
+      case "dbfilename" => context.config.dbParam
     }
     client.write(ByteBuffer.wrap(("*2\r\n$"+value(2).length+"\r\n"+value(2)+"\r\n$"+conf.length+"\r\n"+conf+"\r\n").getBytes))
 

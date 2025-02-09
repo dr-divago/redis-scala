@@ -11,7 +11,7 @@ class InMemoryDB {
   private val db = new ConcurrentHashMap[String, String]()
   private val scheduler = Executors.newScheduledThreadPool(1)
 
-  def add(key: String, value: String, expiration: Expiration): Unit = {
+  def add(key: String, value: String, expiration: Expiration): InMemoryDB = {
     db.put(key, value)
     expiration match {
       case ExpiresAt(time) =>
@@ -22,9 +22,14 @@ class InMemoryDB {
         }, time, TimeUnit.MILLISECONDS)
       case NeverExpires() =>
     }
+    this
   }
 
   def get(key: String): Option[String] = Option(db.get(key))
+
+  def keys() = {
+    db.keys()
+  }
 
   def shutdown(): Unit = {
     scheduler.shutdown()
