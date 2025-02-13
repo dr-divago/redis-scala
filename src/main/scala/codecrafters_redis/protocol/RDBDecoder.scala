@@ -44,37 +44,27 @@ object RDBDecoder {
   }
 
   def readKeyValueWithExpire(fileByte: Array[Byte]): (Option[Long], Option[Long]) = {
-    val startKeyWithExpireSec = findKeyWithExpireSec(fileByte)
-
-    if (startKeyWithExpireSec != -1) {
-      val value = ByteBuffer.wrap(Array(
-          fileByte(startKeyWithExpireSec),
-          fileByte(startKeyWithExpireSec + 1),
-          fileByte(startKeyWithExpireSec + 2),
-          fileByte(startKeyWithExpireSec + 3),
-          fileByte(startKeyWithExpireSec + 4),
-          fileByte(startKeyWithExpireSec + 5),
-          fileByte(startKeyWithExpireSec + 6),
-          fileByte(startKeyWithExpireSec + 7)))
-        .order(ByteOrder.LITTLE_ENDIAN).getLong()
-
+    def readLongAt(pos: Int): Option[Long] = pos match {
+      case -1 => None
+      case n => Some(ByteBuffer.wrap(Array(
+          fileByte(n),
+          fileByte(n + 1),
+          fileByte(n + 2),
+          fileByte(n + 3),
+          fileByte(n + 4),
+          fileByte(n + 5),
+          fileByte(n + 6),
+          fileByte(n + 7)))
+        .order(ByteOrder.LITTLE_ENDIAN)
+        .getLong())
     }
-    val startKeyWithExpireMilli = findKeyWithExpireMillis(fileByte)
-    if (startKeyWithExpireMilli != -1) {
-      val value = ByteBuffer.wrap(Array(
-          fileByte(startKeyWithExpireSec),
-          fileByte(startKeyWithExpireSec + 1),
-          fileByte(startKeyWithExpireSec + 2),
-          fileByte(startKeyWithExpireSec + 3),
-          fileByte(startKeyWithExpireSec + 4),
-          fileByte(startKeyWithExpireSec + 5),
-          fileByte(startKeyWithExpireSec + 6),
-          fileByte(startKeyWithExpireSec + 7)))
-        .order(ByteOrder.LITTLE_ENDIAN).getLong()
 
+    val secValue = readLongAt(findKeyWithExpireSec(fileByte))
+    val milliValue = readLongAt(findKeyWithExpireMillis(fileByte))
 
-    }
+    (secValue, milliValue)
   }
+
 
   private def findKeyWithExpireMillis(fileByte: Array[Byte]) = fileByte.indexOf(0xfd.toByte, 0)
 
