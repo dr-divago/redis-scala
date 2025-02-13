@@ -41,4 +41,10 @@ object Decoder {
   private def decode8Bit(bytes: Array[Byte]) = {
     (1, java.lang.Byte.toUnsignedInt(bytes(1)).toString)
   }
+
+  def decode64bit(bytes: Array[Byte]) = {
+    val value = ByteBuffer.wrap(Array(bytes(0), bytes(1), bytes(2), bytes(3), bytes(4), bytes(5), bytes(6), bytes(7)))
+      .order(ByteOrder.LITTLE_ENDIAN).getLong()
+    (8, value)
+  }
 }
