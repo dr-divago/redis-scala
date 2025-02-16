@@ -29,44 +29,66 @@ object RDBDecoder {
     fileByte(indexStartHashtable + 1)
   }
 
-  def readKeyValue(fileByte: Array[Byte]): List[(String, String)] = {
+  def readKeyValue(fileByte: Array[Byte]): List[(String, String, Option[Long])] = {
     val startHT = findStartHashTable(fileByte)
-    val sizeHT = sizeHashTable(fileByte)
-    var index = startHT + 4
-    val res = ListBuffer.empty[(String, String)]
-    sizeHT.times {
-      val (sizeKey, key) = Decoder.decodeString(fileByte.drop(index))
-      val (sizeValue, value) = Decoder.decodeString(fileByte.drop(index + sizeKey + 1))
-      index = index + (sizeKey + 1) + (sizeValue + 1) + 1
-      res.append((key, value))
+    val sizeHT = fileByte(startHT+1)
+    val sizeHTwithExpire = fileByte(startHT+2)
+
+    val res = ListBuffer.empty[(String, String, Option[Long])]
+    if (sizeHTwithExpire > 0) {
+      var idx = startHT+3
+      sizeHTwithExpire.times {
+        val result = fileByte(idx) & 0xFF match {
+          case 0xfc => Some(readExpirationForMilliSec(fileByte.drop(idx+1)))
+          case 0xfd => Some(readExpirationForSec(fileByte.drop(idx+1)))
+          case _ => None
+        }
+        val (sizeKey, key) = Decoder.decodeString(fileByte.drop(idx+result.get._2+1+1))
+        val (sizeValue, value) = Decoder.decodeString(fileByte.drop(idx+result.get._2+sizeKey+1+1+1))
+        idx = idx + result.get._2 + 1 + (sizeKey + 1) + (sizeValue + 1) + 1
+        res.append((key, value, result.get._1))
+      }
+    }
+    if (sizeHT - sizeHTwithExpire > 0) {
+      var idx = startHT+4
+      sizeHT.times {
+        val (sizeKey, key) = Decoder.decodeString(fileByte.drop(idx))
+        val (sizeValue, value) = Decoder.decodeString(fileByte.drop(idx+sizeKey+1))
+        idx = idx + (sizeKey + 1) + (sizeValue + 1) + 1
+        res.append((key, value, Option.empty))
+      }
     }
     res.toList
   }
 
-  def readKeyValueWithExpire(fileByte: Array[Byte]): (Option[Long], Option[Long]) = {
-    def readLongAt(pos: Int): Option[Long] = pos match {
+  private def readExpirationForSec(fileByte: Array[Byte]) = {
+    def readLongAt(pos: Int, length: Int): Option[Long] = pos match {
       case -1 => None
-      case n => Some(ByteBuffer.wrap(Array(
-          fileByte(n),
-          fileByte(n + 1),
-          fileByte(n + 2),
-          fileByte(n + 3),
-          fileByte(n + 4),
-          fileByte(n + 5),
-          fileByte(n + 6),
-          fileByte(n + 7)))
-        .order(ByteOrder.LITTLE_ENDIAN)
-        .getLong())
+      case n =>
+        val bytes = new Array[Byte](length)
+        for (i <- 0 until length) {
+          bytes(i) = fileByte(n + i)
+        }
+        Some(ByteBuffer.wrap(bytes)
+          .order(ByteOrder.LITTLE_ENDIAN)
+          .getLong())
     }
-
-    val secValue = readLongAt(findKeyWithExpireSec(fileByte))
-    val milliValue = readLongAt(findKeyWithExpireMillis(fileByte))
-
-    (secValue, milliValue)
+    (readLongAt(0, 4), 4)
   }
 
+  def readExpirationForMilliSec(fileByte: Array[Byte]) = {
+    def readLongAt(pos: Int, length: Int): Option[Long] = pos match {
+      case -1 => None
+      case n =>
+        val bytes = new Array[Byte](length)
+        for (i <- 0 until length) {
+          bytes(i) = fileByte(n + i)
+        }
+        Some(ByteBuffer.wrap(bytes)
+          .order(ByteOrder.LITTLE_ENDIAN)
+          .getLong())
+    }
 
-  private def findKeyWithExpireMillis(fileByte: Array[Byte]) = fileByte.indexOf(0xfd.toByte, 0)
-
-  private def findKeyWithExpireSec(fileByte: Array[Byte]) = fileByte.indexOf(0xfc.toByte, 0)
+    (readLongAt(0, 8), 8)
+  }
 }

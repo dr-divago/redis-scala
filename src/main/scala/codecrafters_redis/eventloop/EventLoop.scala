@@ -1,7 +1,7 @@
 package codecrafters_redis.eventloop
 
 import codecrafters_redis.config.Context
-import codecrafters_redis.db.{ExpiresAt, NeverExpires}
+import codecrafters_redis.db.{ExpiresAt, ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol._
 
 import java.io.IOException
@@ -138,7 +138,7 @@ class EventLoop(context: Context) {
         val expireAt = value(3)
         val milliseconds = value(4)
         client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
-        inMemoryDB.add(value(1), value(2), ExpiresAt(milliseconds.toLong))
+        inMemoryDB.add(value(1), value(2), ExpiresIn(milliseconds.toLong))
     }
   }
 }
