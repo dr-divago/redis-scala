@@ -5,7 +5,6 @@ import codecrafters_redis.protocol.RDBDecoder
 
 import java.io.File
 import java.nio.file.{Files, Paths}
-import java.time.{Instant, LocalDateTime, ZoneId}
 
 case class Context(config: Config) {
   def getDB: InMemoryDB = {
@@ -27,5 +26,9 @@ case class Context(config: Config) {
       }
     })
     inMemoryDB
+  }
+
+  def getPort: Int = {
+    config.port.toInt
   }
 }

@@ -1,7 +1,7 @@
 package codecrafters_redis.eventloop
 
 import codecrafters_redis.config.Context
-import codecrafters_redis.db.{ExpiresAt, ExpiresIn, NeverExpires}
+import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol._
 
 import java.io.IOException
@@ -19,7 +19,7 @@ class EventLoop(context: Context) {
     val serverSocket = ServerSocketChannel.open()
     val selector = Selector.open()
     serverSocket.configureBlocking(false)
-    serverSocket.bind(new InetSocketAddress("localhost", 6379))
+    serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
     serverSocket.register(selector, SelectionKey.OP_ACCEPT)
     while (true) {
       if (selector.select() > 0) {
