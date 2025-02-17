@@ -6,7 +6,7 @@ case class Config(dirParam: String = "",
 
 object Config {
   def fromArgs(args: Array[String]): Config = {
-    val argsMap = args.sliding(3, 3).collect {
+    val argsMap = args.sliding(2, 2).collect {
       case Array(key, value) => (key.stripPrefix("--"), value)
     }.toMap
 
