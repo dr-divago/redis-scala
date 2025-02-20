@@ -2,7 +2,8 @@ package codecrafters_redis.config
 
 case class Config(dirParam: String = "",
                   dbParam: String = "",
-                  port: String = "6379")
+                  port: String = "6379",
+                  replicaof: String = "")
 
 object Config {
   def fromArgs(args: Array[String]): Config = {
@@ -13,7 +14,8 @@ object Config {
     Config(
       dirParam = argsMap.getOrElse("dir", ""),
       dbParam = argsMap.getOrElse("dbfilename", ""),
-      port = argsMap.getOrElse("port", "6379")
+      port = argsMap.getOrElse("port", "6379"),
+      replicaof = argsMap.getOrElse("replicaof", "")
     )
   }
 }

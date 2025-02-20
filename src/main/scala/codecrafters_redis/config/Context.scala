@@ -31,4 +31,13 @@ case class Context(config: Config) {
   def getPort: Int = {
     config.port.toInt
   }
+
+  def getReplication : String = {
+    if (config.replicaof.isEmpty) {
+      s"role:master"
+    } else {
+      val replicaof = config.replicaof.split(" ")
+      s"role:slave"
+    }
+  }
 }

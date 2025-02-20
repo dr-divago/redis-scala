@@ -101,7 +101,10 @@ class EventLoop(context: Context) {
   }
 
   private def handleInfoCommand(client: SocketChannel, value: Vector[String]) = {
-    client.write(ByteBuffer.wrap("$11\r\nrole:master\r\n".getBytes))
+    val role = context.getReplication
+    println(role)
+
+    client.write(ByteBuffer.wrap(s"$$${role.length}\r\n$role\r\n".getBytes))
   }
 
   private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
