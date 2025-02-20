@@ -93,10 +93,15 @@ class EventLoop(context: Context) {
           case "GET"    =>  handleGetCommand(client, value(1))
           case "CONFIG" =>  handleConfigGet(client, value)
           case "KEYS"   =>  handleKeysCommand(client, value)
+          case "INFO"   =>  handleInfoCommand(client, value)
         }
         taskQueue.addTask(new Task(task.socket, nextState))
       case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
     }
+  }
+
+  private def handleInfoCommand(client: SocketChannel, value: Vector[String]) = {
+    client.write(ByteBuffer.wrap("$11\r\nrole:master\r\n".getBytes))
   }
 
   private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
