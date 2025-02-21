@@ -102,9 +102,13 @@ class EventLoop(context: Context) {
 
   private def handleInfoCommand(client: SocketChannel, value: Vector[String]) = {
     val role = context.getReplication
-    println(role)
+    val masterId = context.getMasterId
+    val replicationId = s"master_repl_offset:0"
+    val allResp = s"${role}\n${masterId}\n$replicationId\n"
+    val resp = s"$$${allResp.length}\r\n$allResp\r\n"
 
-    client.write(ByteBuffer.wrap(s"$$${role.length}\r\n$role\r\n".getBytes))
+    println(resp)
+    client.write(ByteBuffer.wrap(resp.getBytes))
   }
 
   private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
