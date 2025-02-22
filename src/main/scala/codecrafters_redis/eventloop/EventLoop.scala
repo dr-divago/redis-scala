@@ -95,10 +95,16 @@ class EventLoop(context: Context) {
           case "KEYS"     =>  handleKeysCommand(client, value)
           case "INFO"     =>  handleInfoCommand(client, value)
           case "REPLCONF" =>  handleReplConfCommand(client, value)
+          case "PSYNC"    =>  handlePSyncCommand(client, value)
         }
         taskQueue.addTask(new Task(task.socket, nextState))
       case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
     }
+  }
+
+  private def handlePSyncCommand(client: SocketChannel, value: Vector[String]) = {
+    val masterId = context.getMasterId
+    client.write(ByteBuffer.wrap(s"+FULLRESYNC $masterId ${context.getMasterReplOffset}\r\n".getBytes))
   }
 
   private def handleReplConfCommand(client: SocketChannel, value: Vector[String]) = {
@@ -107,8 +113,8 @@ class EventLoop(context: Context) {
 
   private def handleInfoCommand(client: SocketChannel, value: Vector[String]) = {
     val role = context.getReplication
-    val masterId = context.getMasterId
-    val replicationId = s"master_repl_offset:0"
+    val masterId = context.getMasterIdStr
+    val replicationId = s"master_repl_offset:${context.getMasterReplOffset}"
     val allResp = s"${role}\n${masterId}\n$replicationId\n"
     val resp = s"$$${allResp.length}\r\n$allResp\r\n"
 
