@@ -87,17 +87,22 @@ class EventLoop(context: Context) {
     ProtocolParser.parse(line, task.currentState) match {
       case Parsed(value, nextState) =>
         value.head match {
-          case "PING"   =>  client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
-          case "ECHO"   =>  client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
-          case "SET"    =>  handleSetCommand(client, value)
-          case "GET"    =>  handleGetCommand(client, value(1))
-          case "CONFIG" =>  handleConfigGet(client, value)
-          case "KEYS"   =>  handleKeysCommand(client, value)
-          case "INFO"   =>  handleInfoCommand(client, value)
+          case "PING"     =>  client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
+          case "ECHO"     =>  client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
+          case "SET"      =>  handleSetCommand(client, value)
+          case "GET"      =>  handleGetCommand(client, value(1))
+          case "CONFIG"   =>  handleConfigGet(client, value)
+          case "KEYS"     =>  handleKeysCommand(client, value)
+          case "INFO"     =>  handleInfoCommand(client, value)
+          case "REPLCONF" =>  handleReplConfCommand(client, value)
         }
         taskQueue.addTask(new Task(task.socket, nextState))
       case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
     }
+  }
+
+  private def handleReplConfCommand(client: SocketChannel, value: Vector[String]) = {
+    client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
   }
 
   private def handleInfoCommand(client: SocketChannel, value: Vector[String]) = {
