@@ -53,5 +53,8 @@ object Server {
       throw new Exception(s"Expected +OK but go ${ok2Response}")
     }
     println("Sent PING to master")
+
+    out.write("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n")
+    out.flush()
   }
 }
