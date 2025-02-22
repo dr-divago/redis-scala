@@ -107,7 +107,6 @@ class EventLoop(context: Context) {
     val allResp = s"${role}\n${masterId}\n$replicationId\n"
     val resp = s"$$${allResp.length}\r\n$allResp\r\n"
 
-    println(resp)
     client.write(ByteBuffer.wrap(resp.getBytes))
   }
 
