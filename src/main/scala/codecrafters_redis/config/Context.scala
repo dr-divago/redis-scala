@@ -4,9 +4,11 @@ import codecrafters_redis.db.{ExpiresAt, InMemoryDB, NeverExpires}
 import codecrafters_redis.protocol.RDBDecoder
 
 import java.io.File
+import java.net.Socket
 import java.nio.file.{Files, Paths}
 
-case class Context(config: Config) {
+case class Context(config: Config,
+                   masterSocket: Option[Socket] = None) {
   def getDB: InMemoryDB = {
     val inMemoryDB = new InMemoryDB
     if (config.dbParam.isEmpty)

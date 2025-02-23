@@ -11,16 +11,21 @@ object Server {
   def main(args: Array[String]): Unit = {
     println("REDIS CLONE STARTING!")
     val config = Config.fromArgs(args)
-    val context = Context(config)
-    if (config.replicaof.nonEmpty) {
-      init_replication(config)
+    val baseContext = Context(config)
+    val context = if (config.replicaof.nonEmpty) {
+      println("replica")
+      val masterSocket = init_replication(config)
+      baseContext.copy(masterSocket = Some(masterSocket))
+    } else {
+      println("master")
+      baseContext
     }
     val eventLoop = new EventLoop(context)
     eventLoop.start()
   }
 
 
-  private def init_replication(config: Config): Unit = {
+  private def init_replication(config: Config): Socket = {
 
     val master_ip_port = config.replicaof.split(" ")
     val master_socket = new Socket("localhost", master_ip_port(1).toInt)
@@ -57,5 +62,6 @@ object Server {
 
     out.write("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n")
     out.flush()
+    master_socket
   }
 }

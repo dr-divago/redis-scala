@@ -10,11 +10,13 @@ import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.nio.file.{Files, Paths}
 import java.util.concurrent.ConcurrentHashMap
+import scala.collection.mutable
 
 class EventLoop(context: Context) {
   private val taskQueue: TaskQueue = TaskQueue()
   private val clientBuffers = new ConcurrentHashMap[SocketChannel, StringBuilder]()
   private val inMemoryDB = context.getDB
+  private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
   def start(): Unit = {
     val serverSocket = ServerSocketChannel.open()
@@ -110,6 +112,9 @@ class EventLoop(context: Context) {
     client.write(ByteBuffer.wrap("$88\r\n".getBytes))
     val byesFile = Files.readAllBytes(Paths.get("empty.rdb"))
     client.write(ByteBuffer.wrap(byesFile))
+
+    replicaChannels += client
+    println(s"New replica connected: ${client.socket().getInetAddress}")
   }
 
   private def handleReplConfCommand(client: SocketChannel, value: Vector[String]) = {
@@ -167,5 +172,35 @@ class EventLoop(context: Context) {
         client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
         inMemoryDB.add(value(1), value(2), ExpiresIn(milliseconds.toLong))
     }
+    propagateToReplicas(value)
+  }
+
+  private def propagateToReplicas(value:  Vector[String]) = {
+    val command = buildSetCommand(value)
+    val buffer = ByteBuffer.wrap(command.getBytes)
+
+    val failedChannels = mutable.ArrayBuffer[SocketChannel]()
+
+    for (ch <- replicaChannels) {
+      try {
+        ch.write(buffer)
+        buffer.rewind()
+      } catch {
+        case e : IOException =>
+          println(s"Failed to propagate to replica ${ch.socket().getInetAddress}")
+          try {
+            ch.close()
+          } catch {
+            case _ : IOException =>
+          }
+          failedChannels += ch
+      }
+    }
+    replicaChannels --= failedChannels
+  }
+
+  private def buildSetCommand(value: Vector[String]): String = {
+    val commandParts = value.map(part => s"$$${part.length}\r\n$part\r\n")
+    s"*${value.length}\r\n${commandParts.mkString}"
   }
 }
