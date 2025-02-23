@@ -1,11 +1,11 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.config.Context
+import codecrafters_redis.config.{Config, Context}
 import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol._
 
-import java.io.IOException
-import java.net.InetSocketAddress
+import java.io.{IOException, PrintWriter}
+import java.net.{InetSocketAddress, Socket}
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.nio.file.{Files, Paths}
@@ -19,6 +19,10 @@ class EventLoop(context: Context) {
   private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
   def start(): Unit = {
+    if (context.config.replicaof.nonEmpty) {
+      println("replica")
+      init_replication(context.config)
+    }
     val serverSocket = ServerSocketChannel.open()
     val selector = Selector.open()
     serverSocket.configureBlocking(false)
@@ -37,6 +41,54 @@ class EventLoop(context: Context) {
         }
       }
     }
+  }
+
+
+  private def init_replication(config: Config): Unit = {
+    val master_ip_port = config.replicaof.split(" ")
+    val master_socket = new Socket("localhost", master_ip_port(1).toInt)
+    val port = config.port
+    val out = new PrintWriter(master_socket.getOutputStream)
+    val in = master_socket.getInputStream
+
+    val buffer = ByteBuffer.allocate(17)
+
+    out.write("*1\r\n$4\r\nPING\r\n")
+    out.flush()
+    in.read(buffer.array(), 0, 7)
+    val pingResponse = new String(buffer.array(), 0, 7)
+    if (!pingResponse.equals("+PONG\r\n")) {
+      throw new Exception(s"Expected +PONG but got ${pingResponse} ${pingResponse.length}")
+    }
+
+    out.write(s"*3\r\n$$8\r\nREPLCONF\r\n$$14\r\nlistening-port\r\n$$${port.length}\r\n$port\r\n")
+    out.flush()
+    in.read(buffer.array(), 7, 5)
+    val ok1Response = new String(buffer.array(), 7, 5)
+    if (ok1Response != "+OK\r\n") {
+      throw new Exception(s"Expected +OK but got ${ok1Response} ")
+    }
+
+    out.write("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n")
+    out.flush()
+    in.read(buffer.array(), 12, 5)
+    val ok2Response = new String(buffer.array(), 12, 5)
+    if (ok2Response != "+OK\r\n") {
+      throw new Exception(s"Expected +OK but go ${ok2Response}")
+    }
+
+    out.write("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n")
+    out.flush()
+
+    /*
+    in.read(buffer.array(), 12, 5)
+    val fullResyncResponse = new String(buffer.array(), 12, 5)
+    if (ok2Response != "+OK\r\n") {
+      throw new Exception(s"Expected +OK but go ${ok2Response}")
+    }
+
+     */
+
   }
 
   private def acceptClient(selector: Selector, key: SelectionKey): Unit = {
@@ -90,19 +142,26 @@ class EventLoop(context: Context) {
     ProtocolParser.parse(line, task.currentState) match {
       case Parsed(value, nextState) =>
         value.head match {
-          case "PING"     =>  client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
-          case "ECHO"     =>  client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
-          case "SET"      =>  handleSetCommand(client, value)
-          case "GET"      =>  handleGetCommand(client, value(1))
-          case "CONFIG"   =>  handleConfigGet(client, value)
-          case "KEYS"     =>  handleKeysCommand(client, value)
-          case "INFO"     =>  handleInfoCommand(client, value)
-          case "REPLCONF" =>  handleReplConfCommand(client, value)
-          case "PSYNC"    =>  handlePSyncCommand(client, value)
+          case "PING"       =>  client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
+          case "ECHO"       =>  client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
+          case "SET"        =>  handleSetCommand(client, value)
+          case "GET"        =>  handleGetCommand(client, value(1))
+          case "CONFIG"     =>  handleConfigGet(client, value)
+          case "KEYS"       =>  handleKeysCommand(client, value)
+          case "INFO"       =>  handleInfoCommand(client, value)
+          case "REPLCONF"   =>  handleReplConfCommand(client, value)
+          case "PSYNC"      =>  handlePSyncCommand(client, value)
+          case "FULLRESYNC" =>  handleFullResync(client, value)
         }
         taskQueue.addTask(new Task(task.socket, nextState))
       case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
     }
+  }
+
+  private def handleFullResync(client: SocketChannel, value: Vector[String]) = {
+    println("*****************")
+    println("FULL RESYNC")
+    println("******************")
   }
 
   private def handlePSyncCommand(client: SocketChannel, value: Vector[String]) = {
@@ -162,6 +221,9 @@ class EventLoop(context: Context) {
   }
 
   private def handleSetCommand(client: SocketChannel, value: Vector[String]) = {
+    if (context.config.replicaof.nonEmpty) {
+      println("I am in replica")
+    }
     value.length match {
       case 3 =>
         inMemoryDB.add(value(1), value(2), NeverExpires())
