@@ -8,6 +8,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
+import java.nio.file.{Files, Paths}
 import java.util.concurrent.ConcurrentHashMap
 
 class EventLoop(context: Context) {
@@ -105,6 +106,10 @@ class EventLoop(context: Context) {
   private def handlePSyncCommand(client: SocketChannel, value: Vector[String]) = {
     val masterId = context.getMasterId
     client.write(ByteBuffer.wrap(s"+FULLRESYNC $masterId ${context.getMasterReplOffset}\r\n".getBytes))
+
+    client.write(ByteBuffer.wrap("$88\r\n".getBytes))
+    val byesFile = Files.readAllBytes(Paths.get("empty.rdb"))
+    client.write(ByteBuffer.wrap(byesFile))
   }
 
   private def handleReplConfCommand(client: SocketChannel, value: Vector[String]) = {

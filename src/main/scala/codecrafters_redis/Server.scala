@@ -19,6 +19,7 @@ object Server {
     eventLoop.start()
   }
 
+
   private def init_replication(config: Config): Unit = {
 
     val master_ip_port = config.replicaof.split(" ")
