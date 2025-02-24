@@ -23,21 +23,23 @@ class EventLoop(context: Context) {
       println("replica")
       setupReplication(context.config)
     }
-    val serverSocket = ServerSocketChannel.open()
-    val selector = Selector.open()
-    serverSocket.configureBlocking(false)
-    serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
-    serverSocket.register(selector, SelectionKey.OP_ACCEPT)
-    while (true) {
-      if (selector.select() > 0) {
-        val keys = selector.selectedKeys()
-        val iterator = keys.iterator()
-        while (iterator.hasNext) {
-          iterator.next() match {
-            case key if key.isAcceptable => acceptClient(selector, key)
-            case key if key.isReadable => readData(key)
+    else {
+      val serverSocket = ServerSocketChannel.open()
+      val selector = Selector.open()
+      serverSocket.configureBlocking(false)
+      serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
+      serverSocket.register(selector, SelectionKey.OP_ACCEPT)
+      while (true) {
+        if (selector.select() > 0) {
+          val keys = selector.selectedKeys()
+          val iterator = keys.iterator()
+          while (iterator.hasNext) {
+            iterator.next() match {
+              case key if key.isAcceptable => acceptClient(selector, key)
+              case key if key.isReadable => readData(key)
+            }
+            iterator.remove()
           }
-          iterator.remove()
         }
       }
     }
@@ -81,6 +83,7 @@ class EventLoop(context: Context) {
     out.flush()
 
     // Read FULLRESYNC response
+    println("REPLICA INIT BUFFER")
     val fullResyncBuffer = ByteBuffer.allocate(1024)
     val fullResyncBytes = in.read(fullResyncBuffer.array())
     val fullResyncResponse = new String(fullResyncBuffer.array(), 0, fullResyncBytes)
@@ -88,7 +91,9 @@ class EventLoop(context: Context) {
     if (!fullResyncResponse.startsWith("+FULLRESYNC")) {
       throw new Exception(s"Expected FULLRESYNC but got ${fullResyncResponse}")
     }
+    println("REPLICA READ FULLRESYNC")
 
+    /*
     // Read RDB file
     // First read the RDB file size
     val rdbSizeBuffer = new StringBuilder()
@@ -108,6 +113,8 @@ class EventLoop(context: Context) {
       totalRead += read
     }
 
+
+     */
 
     println("Handshake completed successfully, RDB file received")
     /*
