@@ -21,7 +21,7 @@ class EventLoop(context: Context) {
   def start(): Unit = {
     if (context.config.replicaof.nonEmpty) {
       println("replica")
-      init_replication(context.config)
+      setupReplication(context.config)
     }
     val serverSocket = ServerSocketChannel.open()
     val selector = Selector.open()
@@ -44,7 +44,7 @@ class EventLoop(context: Context) {
   }
 
 
-  private def init_replication(config: Config): Unit = {
+  private def setupReplication(config: Config): Unit = {
     val master_ip_port = config.replicaof.split(" ")
     val master_socket = new Socket("localhost", master_ip_port(1).toInt)
     val port = config.port
@@ -80,6 +80,36 @@ class EventLoop(context: Context) {
     out.write("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n")
     out.flush()
 
+    // Read FULLRESYNC response
+    val fullResyncBuffer = ByteBuffer.allocate(1024)
+    val fullResyncBytes = in.read(fullResyncBuffer.array())
+    val fullResyncResponse = new String(fullResyncBuffer.array(), 0, fullResyncBytes)
+
+    if (!fullResyncResponse.startsWith("+FULLRESYNC")) {
+      throw new Exception(s"Expected FULLRESYNC but got ${fullResyncResponse}")
+    }
+
+    // Read RDB file
+    // First read the RDB file size
+    val rdbSizeBuffer = new StringBuilder()
+    var char = in.read().toChar
+    while (char != '\r') {
+      rdbSizeBuffer.append(char)
+      char = in.read().toChar
+    }
+    in.read() // consume \n
+
+    val rdbSize = rdbSizeBuffer.toString().substring(1).toInt // Remove $ from size
+    val rdbBuffer = ByteBuffer.allocate(rdbSize)
+    var totalRead = 0
+    while (totalRead < rdbSize) {
+      val read = in.read(rdbBuffer.array(), totalRead, rdbSize - totalRead)
+      if (read == -1) throw new Exception("Unexpected end of RDB file")
+      totalRead += read
+    }
+
+
+    println("Handshake completed successfully, RDB file received")
     /*
     in.read(buffer.array(), 12, 5)
     val fullResyncResponse = new String(buffer.array(), 12, 5)
