@@ -19,34 +19,55 @@ class EventLoop(context: Context) {
   private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
   def start(): Unit = {
+    val selector = Selector.open()
     if (context.config.replicaof.nonEmpty) {
-      println("replica")
-      setupReplication(context.config)
+      println("Replica")
+      setupReplication(context.config, selector)
     }
     else {
       val serverSocket = ServerSocketChannel.open()
-      val selector = Selector.open()
       serverSocket.configureBlocking(false)
       serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
       serverSocket.register(selector, SelectionKey.OP_ACCEPT)
-      while (true) {
-        if (selector.select() > 0) {
-          val keys = selector.selectedKeys()
-          val iterator = keys.iterator()
-          while (iterator.hasNext) {
-            iterator.next() match {
-              case key if key.isAcceptable => acceptClient(selector, key)
-              case key if key.isReadable => readData(key)
-            }
-            iterator.remove()
+    }
+
+    mainEventLoop(selector)
+
+  }
+
+  private def mainEventLoop(selector: Selector): Unit = {
+    while (true) {
+      if (selector.select() > 0) {
+        val keys = selector.selectedKeys()
+        val iterator = keys.iterator()
+        while (iterator.hasNext) {
+          iterator.next() match {
+            case key if key.isAcceptable => acceptClient(key)
+            case key if key.isReadable => readData(key)
+            case key if key.isConnectable => connectClient(key)
+            case key if key.isWritable => writeData(key)
           }
+          iterator.remove()
         }
       }
     }
   }
 
+  private def writeData(key: SelectionKey) = {
+    println("Write data")
+  }
 
-  private def setupReplication(config: Config): Unit = {
+  private def connectClient(key: SelectionKey) = {
+    val channel = key.channel().asInstanceOf[SocketChannel]
+
+    if (channel.finishConnect()) {
+      println("Connected to master")
+      key.interestOps(SelectionKey.OP_WRITE)
+    }
+
+  }
+
+  private def setupReplication(config: Config, selector: Selector): Unit = {
     val masterIpPort = config.replicaof.split(" ")
     val masterChannel = SocketChannel.open()
     masterChannel.configureBlocking(false)
@@ -55,9 +76,11 @@ class EventLoop(context: Context) {
 
     if (connected) {
       println("connected to server")
+      masterChannel.register(selector, SelectionKey.OP_WRITE)
     }
     else {
       println("Not connected yet")
+      masterChannel.register(selector, SelectionKey.OP_CONNECT)
     }
 
     /*
@@ -150,12 +173,12 @@ class EventLoop(context: Context) {
 
   }
 
-  private def acceptClient(selector: Selector, key: SelectionKey): Unit = {
+  private def acceptClient(key: SelectionKey): Unit = {
     val serverChannel = key.channel().asInstanceOf[ServerSocketChannel]
     val client = serverChannel.accept()
     println(s"CONNECT: ${client.socket().getInetAddress}")
     client.configureBlocking(false)
-    client.register(selector, SelectionKey.OP_READ)
+    client.register(key.selector(), SelectionKey.OP_READ)
     taskQueue.addTask(new Task(client.socket(), WaitingForCommand()))
   }
 
