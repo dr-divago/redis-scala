@@ -14,7 +14,7 @@ import scala.collection.mutable
 
 class EventLoop(context: Context) {
   private val taskQueue: TaskQueue = TaskQueue()
-  private val clientBuffers = new ConcurrentHashMap[SocketChannel, StringBuilder]()
+  private var connections = List[Connection]()
   private val inMemoryDB = context.getDB
   private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
@@ -179,12 +179,21 @@ class EventLoop(context: Context) {
     println(s"CONNECT: ${client.socket().getInetAddress}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
-    taskQueue.addTask(new Task(client.socket(), WaitingForCommand()))
+    val connection = Connection(client)
+    taskQueue.addTask(new Task(connection, WaitingForCommand()))
   }
 
   private def readData(key: SelectionKey): Unit = {
-    val buffer = ByteBuffer.allocate(1024)
     val client = key.channel().asInstanceOf[SocketChannel]
+
+    connections.find(_.socketChannel == client) match {
+      case Some(connection) => readDataFromClient(key, client, connection)
+      case None =>
+        println("No connection found")
+        val connection = Connection(client)
+        connections = connections.appended(connection)
+    }
+
     try {
       val bytesRead = client.read(buffer)
       if (bytesRead == -1) {
@@ -219,6 +228,21 @@ class EventLoop(context: Context) {
     }
   }
 
+  private def readDataFromClient(key: SelectionKey, client: SocketChannel, connection: Connection) = {
+    val buffer = connection.buffer
+    buffer.compact()
+
+    val byteRead = client.read(buffer)
+    if (byteRead == -1) {
+      client.close()
+      key.cancel()
+      connections.dropWhile(_.socketChannel == client)
+    }
+    else {
+      buffer.flip()
+    }
+  }
+
   private def parseLine(client: SocketChannel, line: String, task: Task): Unit = {
     taskQueue.removeFirstTask(client.socket())
     ProtocolParser.parse(line, task.currentState) match {
@@ -235,8 +259,8 @@ class EventLoop(context: Context) {
           case "PSYNC"      =>  handlePSyncCommand(client, value)
           case "FULLRESYNC" =>  handleFullResync(client, value)
         }
-        taskQueue.addTask(new Task(task.socket, nextState))
-      case Continue(nextState) => taskQueue.addTask(new Task(task.socket, nextState))
+        taskQueue.addTask(new Task(task.connection, nextState))
+      case Continue(nextState) => taskQueue.addTask(new Task(task.connection, nextState))
     }
   }
 

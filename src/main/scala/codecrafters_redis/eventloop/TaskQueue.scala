@@ -6,8 +6,8 @@ import scala.collection.immutable.Queue
 case class TaskQueue() {
   var taskQueue: Map[Socket, Queue[Task]] = Map.empty
   def addTask(task : Task): Unit = {
-    val queue = taskQueue.getOrElse(task.socket, Queue.empty)
-    taskQueue = taskQueue + (task.socket -> queue.enqueue(task))
+    val queue = taskQueue.getOrElse(task.connection.socketChannel.socket(), Queue.empty)
+    taskQueue = taskQueue + (task.connection.socketChannel.socket -> queue.enqueue(task))
   }
   def nextTask(socket: Socket) : Option[Task] = {
     taskQueue.get(socket).flatMap(_.headOption)
