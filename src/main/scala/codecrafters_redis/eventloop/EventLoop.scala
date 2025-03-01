@@ -4,17 +4,17 @@ import codecrafters_redis.config.{Config, Context}
 import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol._
 
-import java.io.{IOException, PrintWriter}
-import java.net.{InetSocketAddress, Socket}
+import java.io.IOException
+import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.nio.file.{Files, Paths}
-import java.util.concurrent.ConcurrentHashMap
+import scala.annotation.tailrec
+import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 
 class EventLoop(context: Context) {
-  private val taskQueue: TaskQueue = TaskQueue()
-  private var connections = List[Connection]()
+  private var connections = TrieMap[SocketChannel, Connection]()
   private val inMemoryDB = context.getDB
   private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
@@ -179,21 +179,24 @@ class EventLoop(context: Context) {
     println(s"CONNECT: ${client.socket().getInetAddress}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
-    val connection = Connection(client)
-    taskQueue.addTask(new Task(connection, WaitingForCommand()))
+    val connection = Connection(client, new Task(connection, WaitingForCommand()))
   }
 
   private def readData(key: SelectionKey): Unit = {
     val client = key.channel().asInstanceOf[SocketChannel]
 
-    connections.find(_.socketChannel == client) match {
-      case Some(connection) => readDataFromClient(key, client, connection)
+
+    connections.get(client) match {
+      case Some(connection) => readDataFromClient(key, connection)
       case None =>
         println("No connection found")
         val connection = Connection(client)
-        connections = connections.appended(connection)
+        connections = connections.addOne(client, connection)
     }
 
+
+
+    /*
     try {
       val bytesRead = client.read(buffer)
       if (bytesRead == -1) {
@@ -226,20 +229,43 @@ class EventLoop(context: Context) {
     } finally {
       buffer.clear()
     }
+
+     */
   }
 
-  private def readDataFromClient(key: SelectionKey, client: SocketChannel, connection: Connection) = {
+  private def readDataFromClient(key: SelectionKey, connection: Connection) = {
     val buffer = connection.buffer
+    val client = connection.socketChannel
     buffer.compact()
+
 
     val byteRead = client.read(buffer)
     if (byteRead == -1) {
       client.close()
       key.cancel()
-      connections.dropWhile(_.socketChannel == client)
+      //connections.dropWhile(_.socketChannel == client)
     }
     else {
       buffer.flip()
+      val bytes = new Array[Byte](buffer.remaining())
+      buffer.get(bytes)
+      val data = new String(bytes)
+      connection.addData(data)
+
+      @tailrec
+      def processLine() : Unit = {
+        connection.lineParser.nextLine() match {
+          case Some(l) =>
+            connection.nextTask() match {
+              case Some(task) => parseLine(client, l, task)
+              case None => println(s"No task found for client ${client.socket().getInetAddress}")
+            }
+            processLine()
+          case None =>
+        }
+      }
+      processLine()
+
     }
   }
 
