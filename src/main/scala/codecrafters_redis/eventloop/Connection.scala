@@ -147,7 +147,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     }
   }
 
-  private def handleSetCommand(client: SocketChannel, value: Vector[String]) = {
+  private def handleSetCommand(value: Vector[String]) = {
     if (context.config.replicaof.nonEmpty) {
       println("I am in replica")
     }
