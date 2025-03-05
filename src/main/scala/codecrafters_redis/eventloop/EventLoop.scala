@@ -179,15 +179,16 @@ class EventLoop(context: Context) {
     println(s"CONNECT: ${client.socket().getInetAddress}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
-    val connection = Connection(client, new Task(connection, WaitingForCommand()))
+    val connection = Connection(client)
+    connection.addTask(new Task(WaitingForCommand()))
+    connections.addOne(client, connection)
   }
 
   private def readData(key: SelectionKey): Unit = {
     val client = key.channel().asInstanceOf[SocketChannel]
 
-
     connections.get(client) match {
-      case Some(connection) => readDataFromClient(key, connection)
+      case Some(connection) => connection.readDataFromClient(key)
       case None =>
         println("No connection found")
         val connection = Connection(client)
@@ -233,168 +234,13 @@ class EventLoop(context: Context) {
      */
   }
 
-  private def readDataFromClient(key: SelectionKey, connection: Connection) = {
-    val buffer = connection.buffer
-    val client = connection.socketChannel
-    buffer.compact()
 
 
-    val byteRead = client.read(buffer)
-    if (byteRead == -1) {
-      client.close()
-      key.cancel()
-      //connections.dropWhile(_.socketChannel == client)
-    }
-    else {
-      buffer.flip()
-      val bytes = new Array[Byte](buffer.remaining())
-      buffer.get(bytes)
-      val data = new String(bytes)
-      connection.addData(data)
 
-      @tailrec
-      def processLine() : Unit = {
-        connection.lineParser.nextLine() match {
-          case Some(l) =>
-            connection.nextTask() match {
-              case Some(task) => parseLine(client, l, task)
-              case None => println(s"No task found for client ${client.socket().getInetAddress}")
-            }
-            processLine()
-          case None =>
-        }
-      }
-      processLine()
 
-    }
-  }
 
-  private def parseLine(client: SocketChannel, line: String, task: Task): Unit = {
-    taskQueue.removeFirstTask(client.socket())
-    ProtocolParser.parse(line, task.currentState) match {
-      case Parsed(value, nextState) =>
-        value.head match {
-          case "PING"       =>  client.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
-          case "ECHO"       =>  client.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
-          case "SET"        =>  handleSetCommand(client, value)
-          case "GET"        =>  handleGetCommand(client, value(1))
-          case "CONFIG"     =>  handleConfigGet(client, value)
-          case "KEYS"       =>  handleKeysCommand(client, value)
-          case "INFO"       =>  handleInfoCommand(client, value)
-          case "REPLCONF"   =>  handleReplConfCommand(client, value)
-          case "PSYNC"      =>  handlePSyncCommand(client, value)
-          case "FULLRESYNC" =>  handleFullResync(client, value)
-        }
-        taskQueue.addTask(new Task(task.connection, nextState))
-      case Continue(nextState) => taskQueue.addTask(new Task(task.connection, nextState))
-    }
-  }
 
-  private def handleFullResync(client: SocketChannel, value: Vector[String]) = {
-    println("*****************")
-    println("FULL RESYNC")
-    println("******************")
-  }
 
-  private def handlePSyncCommand(client: SocketChannel, value: Vector[String]) = {
-    val masterId = context.getMasterId
-    client.write(ByteBuffer.wrap(s"+FULLRESYNC $masterId ${context.getMasterReplOffset}\r\n".getBytes))
 
-    client.write(ByteBuffer.wrap("$88\r\n".getBytes))
-    val byesFile = Files.readAllBytes(Paths.get("empty.rdb"))
-    client.write(ByteBuffer.wrap(byesFile))
 
-    replicaChannels += client
-    println(s"New replica connected: ${client.socket().getInetAddress}")
-  }
-
-  private def handleReplConfCommand(client: SocketChannel, value: Vector[String]) = {
-    client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
-  }
-
-  private def handleInfoCommand(client: SocketChannel, value: Vector[String]) = {
-    val role = context.getReplication
-    val masterId = context.getMasterIdStr
-    val replicationId = s"master_repl_offset:${context.getMasterReplOffset}"
-    val allResp = s"${role}\n${masterId}\n$replicationId\n"
-    val resp = s"$$${allResp.length}\r\n$allResp\r\n"
-
-    client.write(ByteBuffer.wrap(resp.getBytes))
-  }
-
-  private def handleKeysCommand(client: SocketChannel, value: Vector[String]) = {
-    val keys = inMemoryDB.keys()
-    val responseMsg = buildKeyCommand(keys)
-    val fullMsg = ByteBuffer.wrap(responseMsg.getBytes)
-    client.write(fullMsg)
-  }
-
-  private def buildKeyCommand(keys : Iterable[String]): String = {
-    val sizeOfArrayResponse = s"*${keys.size}\r\n"
-    val elements = keys.map(key => s"$$${key.length}\r\n${key}\r\n").mkString
-    sizeOfArrayResponse + elements.mkString
-  }
-
-  private def handleConfigGet(client: SocketChannel, value: Vector[String]) = {
-    val conf = value(2) match {
-      case "dir" => context.config.dirParam
-      case "dbfilename" => context.config.dbParam
-    }
-    client.write(ByteBuffer.wrap(("*2\r\n$"+value(2).length+"\r\n"+value(2)+"\r\n$"+conf.length+"\r\n"+conf+"\r\n").getBytes))
-
-  }
-
-  private def handleGetCommand(client: SocketChannel, key: String): Unit = {
-    val value : Option[String] = inMemoryDB.get(key)
-    value match {
-      case Some(v) => client.write(ByteBuffer.wrap(("$" + v.length + "\r\n" + v + "\r\n").getBytes))
-      case None => client.write(ByteBuffer.wrap("$-1\r\n".getBytes))
-    }
-  }
-
-  private def handleSetCommand(client: SocketChannel, value: Vector[String]) = {
-    if (context.config.replicaof.nonEmpty) {
-      println("I am in replica")
-    }
-    value.length match {
-      case 3 =>
-        inMemoryDB.add(value(1), value(2), NeverExpires())
-        client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
-      case 5 =>
-        val expireAt = value(3)
-        val milliseconds = value(4)
-        client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
-        inMemoryDB.add(value(1), value(2), ExpiresIn(milliseconds.toLong))
-    }
-    propagateToReplicas(value)
-  }
-
-  private def propagateToReplicas(value:  Vector[String]) = {
-    val command = buildSetCommand(value)
-    val buffer = ByteBuffer.wrap(command.getBytes)
-
-    val failedChannels = mutable.ArrayBuffer[SocketChannel]()
-
-    for (ch <- replicaChannels) {
-      try {
-        ch.write(buffer)
-        buffer.rewind()
-      } catch {
-        case e : IOException =>
-          println(s"Failed to propagate to replica ${ch.socket().getInetAddress}")
-          try {
-            ch.close()
-          } catch {
-            case _ : IOException =>
-          }
-          failedChannels += ch
-      }
-    }
-    replicaChannels --= failedChannels
-  }
-
-  private def buildSetCommand(value: Vector[String]): String = {
-    val commandParts = value.map(part => s"$$${part.length}\r\n$part\r\n")
-    s"*${value.length}\r\n${commandParts.mkString}"
-  }
 }
