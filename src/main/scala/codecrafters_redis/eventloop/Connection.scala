@@ -1,7 +1,7 @@
 package codecrafters_redis.eventloop
 
 import codecrafters_redis.config.Context
-import codecrafters_redis.db.{ExpiresIn, NeverExpires}
+import codecrafters_redis.db.{ExpiresIn, InMemoryDB, NeverExpires}
 import codecrafters_redis.protocol.{Continue, Parsed, ProtocolParser}
 
 import java.io.IOException
@@ -16,6 +16,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   private val lineParser: LineParser = new LineParser()
   private val tasks: mutable.Queue[Task] = mutable.Queue.empty
   private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
+  private val inMemoryDB = context.getDB
 
   def addTask(task : Task) : Unit = {
     tasks.enqueue(task)
@@ -154,11 +155,11 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     value.length match {
       case 3 =>
         inMemoryDB.add(value(1), value(2), NeverExpires())
-        client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
+        socketChannel.write(ByteBuffer.wrap("+OK\r\n".getBytes))
       case 5 =>
         val expireAt = value(3)
         val milliseconds = value(4)
-        client.write(ByteBuffer.wrap("+OK\r\n".getBytes))
+        socketChannel.write(ByteBuffer.wrap("+OK\r\n".getBytes))
         inMemoryDB.add(value(1), value(2), ExpiresIn(milliseconds.toLong))
     }
     propagateToReplicas(value)

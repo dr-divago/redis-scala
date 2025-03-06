@@ -179,8 +179,7 @@ class EventLoop(context: Context) {
     println(s"CONNECT: ${client.socket().getInetAddress}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
-    val connection = Connection(client)
-    connection.addTask(new Task(WaitingForCommand()))
+    val connection = Connection(client, new Task(WaitingForCommand()), context)
     connections.addOne(client, connection)
   }
 
@@ -191,7 +190,7 @@ class EventLoop(context: Context) {
       case Some(connection) => connection.readDataFromClient(key)
       case None =>
         println("No connection found")
-        val connection = Connection(client)
+        val connection = Connection(client, new Task(WaitingForCommand()), context)
         connections = connections.addOne(client, connection)
     }
 
