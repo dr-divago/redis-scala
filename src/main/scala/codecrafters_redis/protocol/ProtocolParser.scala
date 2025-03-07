@@ -22,7 +22,7 @@ object ProtocolParser {
           case '$' => Continue(ParsingValue(currentValue, remaining, input.tail.toInt))
           case ':' => Parsed(currentValue :+ input.tail, WaitingForCommand())
         }
-      case ParsingValue(currentValue, remaining, length) =>
+      case ParsingValue(currentValue, remaining, _) =>
         remaining match {
           case 1 => Parsed(currentValue :+ input, WaitingForCommand())
           case _ => Continue(WaitingForBulkString(currentValue :+ input, remaining - 1))

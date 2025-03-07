@@ -22,39 +22,52 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     tasks.enqueue(task)
   }
 
-  def nextTask() : Option[Task] = {
+  private def nextTask() : Option[Task] = {
     if (tasks.isEmpty) None
     else Some(tasks.dequeue())
   }
 
-  def addData(data: String) : Unit = {
+  private def addData(data: String) : Unit = {
     lineParser.append(data)
   }
 
+  def readData() : Unit = {
+    buffer.flip()
+
+    val bytes = new Array[Byte](buffer.remaining())
+    buffer.get(bytes)
+    val data = new String(bytes)
+    addData(data)
+  }
+
   def readDataFromClient(key: SelectionKey): Unit = {
-    buffer.compact()
+    if (buffer.position() > 0) {
+      println(s"buffer position ${buffer.position()}")
+      readData()
+      buffer.clear()
+    } else if (buffer.position() == buffer.limit()) {
+      println(s"buffer full ${buffer.position()}")
+      buffer.clear()
+    }
 
-
+    println(s"Buffer before compact: position=${buffer.position()}, limit=${buffer.limit()}, capacity=${buffer.capacity()}")
     val byteRead = socketChannel.read(buffer)
+    println(s"Read returned: $byteRead bytes")
     if (byteRead == -1) {
       socketChannel.close()
       key.cancel()
       //connections.dropWhile(_.socketChannel == client)
     }
-    else {
-      buffer.flip()
-      val bytes = new Array[Byte](buffer.remaining())
-      buffer.get(bytes)
-      val data = new String(bytes)
-      addData(data)
+    else if (byteRead > 0) {
+      readData()
 
       @tailrec
       def processLine() : Unit = {
         lineParser.nextLine() match {
-          case Some(l) =>
+          case Some(line) =>
             nextTask() match {
-              case Some(task) => parseLine(l, task)
-              case None => println(s"No task found for client ${socketChannel.socket().getInetAddress}")
+              case Some(task) => parseLine(line, task)
+              case None => println(s"No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
             }
             processLine()
           case None =>
@@ -62,6 +75,9 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
       }
       processLine()
 
+    }
+    if (byteRead != -1) {  // Don't bother clearing if channel is closed
+      buffer.clear()
     }
   }
 
@@ -80,8 +96,8 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
           case "PSYNC"      =>  handlePSyncCommand(value)
           case "FULLRESYNC" =>  handleFullResync(value)
         }
-      case Continue(nextState) =>
-      //taskQueue.addTask(new Task(task.connection, nextState))
+        addTask(new Task(nextState))
+      case Continue(nextState) => addTask(new Task(nextState))
     }
   }
 

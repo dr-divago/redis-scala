@@ -62,7 +62,7 @@ class EventLoop(context: Context) {
 
     if (channel.finishConnect()) {
       println("Connected to master")
-      key.interestOps(SelectionKey.OP_WRITE)
+      //key.interestOps(SelectionKey.OP_WRITE)
     }
 
   }
@@ -193,53 +193,5 @@ class EventLoop(context: Context) {
         val connection = Connection(client, new Task(WaitingForCommand()), context)
         connections = connections.addOne(client, connection)
     }
-
-
-
-    /*
-    try {
-      val bytesRead = client.read(buffer)
-      if (bytesRead == -1) {
-        client.close()
-        key.cancel()
-      }
-      else if (bytesRead > 0) {
-        buffer.flip()
-        val data = new String(buffer.array(), 0, buffer.limit())
-
-        val clientBuffer = clientBuffers.computeIfAbsent(client, _ => new StringBuilder())
-        clientBuffer.append(data)
-
-        var endLineIndex = clientBuffer.indexOf("\r\n")
-        while (endLineIndex != -1) {
-          val line = clientBuffer.substring(0, endLineIndex)
-          clientBuffer.delete(0, endLineIndex + 2)
-
-          taskQueue.nextTask(client.socket()) match {
-            case Some(task) => parseLine(client, line, task)
-            case None => println(s"No task found for client ${client.socket().getInetAddress}")
-          }
-          endLineIndex = clientBuffer.indexOf("\r\n")
-        }
-      }
-    } catch {
-      case _: IOException =>
-        client.close()
-        key.cancel()
-    } finally {
-      buffer.clear()
-    }
-
-     */
   }
-
-
-
-
-
-
-
-
-
-
 }
