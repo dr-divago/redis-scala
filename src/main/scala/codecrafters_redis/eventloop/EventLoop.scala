@@ -62,7 +62,7 @@ class EventLoop(context: Context) {
 
     if (channel.finishConnect()) {
       println("Connected to master")
-      //key.interestOps(SelectionKey.OP_WRITE)
+      key.interestOps(SelectionKey.OP_READ)
     }
 
   }
@@ -72,6 +72,8 @@ class EventLoop(context: Context) {
     val masterChannel = SocketChannel.open()
     masterChannel.configureBlocking(false)
 
+
+    println(s"Connecting to master with ip ${masterIpPort(0)} port ${masterIpPort(1).toInt}")
     val connected = masterChannel.connect(new InetSocketAddress(masterIpPort(0), masterIpPort(1).toInt))
 
     if (connected) {
