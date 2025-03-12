@@ -19,16 +19,16 @@ class EventLoop(context: Context) {
   private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
   def start(): Unit = {
+
     val selector = Selector.open()
+    val serverSocket = ServerSocketChannel.open()
+    serverSocket.configureBlocking(false)
+    serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
+    serverSocket.register(selector, SelectionKey.OP_ACCEPT)
+
     if (context.config.replicaof.nonEmpty) {
       println("Replica")
       setupReplication(context.config, selector)
-    }
-    else {
-      val serverSocket = ServerSocketChannel.open()
-      serverSocket.configureBlocking(false)
-      serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
-      serverSocket.register(selector, SelectionKey.OP_ACCEPT)
     }
 
     mainEventLoop(selector)
@@ -62,6 +62,7 @@ class EventLoop(context: Context) {
 
     if (channel.finishConnect()) {
       println("Connected to master")
+      sendPingToMaster(channel)
       key.interestOps(SelectionKey.OP_READ)
     }
 
@@ -78,7 +79,8 @@ class EventLoop(context: Context) {
 
     if (connected) {
       println("connected to server")
-      masterChannel.register(selector, SelectionKey.OP_WRITE)
+      sendPingToMaster(masterChannel)
+      masterChannel.register(selector, SelectionKey.OP_READ)
     }
     else {
       println("Not connected yet")
@@ -175,7 +177,15 @@ class EventLoop(context: Context) {
 
   }
 
+  private def sendPingToMaster(masterChannel : SocketChannel): Unit = {
+    val pingCommand = "*1\r\n$4\r\nPING\r\n"
+    val buffer = ByteBuffer.wrap(pingCommand.getBytes)
+    masterChannel.write(buffer)
+    println("SENT PING to master")
+  }
+
   private def acceptClient(key: SelectionKey): Unit = {
+    println("acceptClient")
     val serverChannel = key.channel().asInstanceOf[ServerSocketChannel]
     val client = serverChannel.accept()
     println(s"CONNECT: ${client.socket().getInetAddress}")
@@ -188,6 +198,19 @@ class EventLoop(context: Context) {
   private def readData(key: SelectionKey): Unit = {
     val client = key.channel().asInstanceOf[SocketChannel]
 
+    if (isReplica &&
+      client.getRemoteAddress.toString.contains(context.config.replicaof.split(" ")(1))) {
+      val buffer = ByteBuffer.allocate(1024)
+      val bytesRead = client.read(buffer)
+
+      if (bytesRead > 0) {
+        buffer.flip()
+        val response = new String(buffer.array(), 0, buffer.limit())
+        println(s"Received from master: $response")
+      }
+      return
+    }
+
     connections.get(client) match {
       case Some(connection) => connection.readDataFromClient(key)
       case None =>
@@ -195,5 +218,9 @@ class EventLoop(context: Context) {
         val connection = Connection(client, new Task(WaitingForCommand()), context)
         connections = connections.addOne(client, connection)
     }
+  }
+
+  private def isReplica: Boolean =  {
+    context.config.replicaof.nonEmpty
   }
 }
