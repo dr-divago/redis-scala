@@ -7,9 +7,11 @@ import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import scala.collection.concurrent.TrieMap
+import scala.collection.mutable
 
 class EventLoop(context: Context) {
   private var connections = TrieMap[SocketChannel, Connection]()
+  private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
   def start(): Unit = {
 
@@ -146,7 +148,7 @@ class EventLoop(context: Context) {
       }
     } else {
       connections.get(client) match {
-        case Some(connection) => connection.readDataFromClient(key)
+        case Some(connection) => connection.readDataFromClient(key, replicaChannels)
         case None =>
           println("No connection found")
           val connection = Connection(client, new Task(WaitingForCommand()), context)

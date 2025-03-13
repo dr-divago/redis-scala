@@ -15,7 +15,6 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
   private val lineParser: LineParser = new LineParser()
   private val tasks: mutable.Queue[Task] = mutable.Queue.empty
-  private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
   private val inMemoryDB = context.getDB
 
   def addTask(task : Task) : Unit = {
@@ -40,7 +39,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     addData(data)
   }
 
-  def readDataFromClient(key: SelectionKey): Unit = {
+  def readDataFromClient(key: SelectionKey, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
     if (buffer.position() > 0) {
       println(s"buffer position ${buffer.position()}")
       readData()
@@ -66,7 +65,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
         lineParser.nextLine() match {
           case Some(line) =>
             nextTask() match {
-              case Some(task) => parseLine(line, task)
+              case Some(task) => parseLine(line, task, replicaChannels)
               case None => println(s"No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
             }
             processLine()
@@ -81,19 +80,19 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     }
   }
 
-  private def parseLine(line: String, task: Task): Unit = {
+  private def parseLine(line: String, task: Task, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
     ProtocolParser.parse(line, task.currentState) match {
       case Parsed(value, nextState) =>
         value.head match {
           case "PING"       =>  socketChannel.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
           case "ECHO"       =>  socketChannel.write(ByteBuffer.wrap(("$"+value(1).length+"\r\n"+value(1) + "\r\n").getBytes))
-          case "SET"        =>  handleSetCommand(value)
+          case "SET"        =>  handleSetCommand(value, replicaChannels)
           case "GET"        =>  handleGetCommand(value(1))
           case "CONFIG"     =>  handleConfigGet(value)
           case "KEYS"       =>  handleKeysCommand(value)
           case "INFO"       =>  handleInfoCommand(value)
           case "REPLCONF"   =>  handleReplConfCommand(value)
-          case "PSYNC"      =>  handlePSyncCommand(value)
+          case "PSYNC"      =>  handlePSyncCommand(value, replicaChannels)
           case "FULLRESYNC" =>  handleFullResync(value)
         }
         addTask(new Task(nextState))
@@ -102,13 +101,13 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
 
-  private def handleFullResync(value: Vector[String]) = {
+  private def handleFullResync(value: Vector[String]): Unit = {
     println("*****************")
     println("FULL RESYNC")
     println("******************")
   }
 
-  private def handlePSyncCommand(value: Vector[String]) = {
+  private def handlePSyncCommand(value: Vector[String], replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
     val masterId = context.getMasterId
     socketChannel.write(ByteBuffer.wrap(s"+FULLRESYNC $masterId ${context.getMasterReplOffset}\r\n".getBytes))
 
@@ -117,7 +116,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     socketChannel.write(ByteBuffer.wrap(byesFile))
 
     replicaChannels += socketChannel
-    println(s"New replica connected: ${socketChannel.socket().getInetAddress}")
+    println(s"New replica connected: ${socketChannel.socket().getInetAddress} ${socketChannel.socket().getPort}")
   }
 
   private def handleReplConfCommand(value: Vector[String]) = {
@@ -164,7 +163,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     }
   }
 
-  private def handleSetCommand(value: Vector[String]) = {
+  private def handleSetCommand(value: Vector[String], replicaChannel : mutable.ArrayBuffer[SocketChannel]) = {
     if (context.config.replicaof.nonEmpty) {
       println("I am in replica")
     }
@@ -178,10 +177,11 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
         socketChannel.write(ByteBuffer.wrap("+OK\r\n".getBytes))
         inMemoryDB.add(value(1), value(2), ExpiresIn(milliseconds.toLong))
     }
-    propagateToReplicas(value)
+    propagateToReplicas(value, replicaChannel)
   }
 
-  private def propagateToReplicas(value:  Vector[String]) = {
+  private def propagateToReplicas(value:  Vector[String], replicaChannels : mutable.ArrayBuffer[SocketChannel]) = {
+    println(s"PropagaToReplicas ${replicaChannels.length}")
     val command = buildSetCommand(value)
     val buffer = ByteBuffer.wrap(command.getBytes)
 
