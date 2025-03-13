@@ -67,6 +67,8 @@ class EventLoop(context: Context) {
           println(s"Context port ${newState.context.masterChannel.get.socket().getPort}")
           ProtocolManager.executeAction(action, newState.context)
           key.interestOps(SelectionKey.OP_READ)
+          val connectionToMaster = Connection(newState.context.masterChannel.get, new Task(WaitingForCommand()), context)
+          connections.addOne(newState.context.masterChannel.get, connectionToMaster)
           newState
         }
       } else {
@@ -90,12 +92,13 @@ class EventLoop(context: Context) {
     val connected = masterChannel.connect(new InetSocketAddress(masterIpPort(0), masterIpPort(1).toInt))
     val initialState = ProtocolManager(masterChannel, context.getPort)
 
-
     if (connected) {
       println("connected to server")
       val (newState, action) = ProtocolManager.processEvent(initialState, ConnectionEstablished)
       ProtocolManager.executeAction(action, newState.context)
       masterChannel.register(selector, SelectionKey.OP_READ)
+      val connectionToMaster = Connection(masterChannel, new Task(WaitingForCommand()), context)
+      connections.addOne(masterChannel, connectionToMaster)
       newState
     }
     else {
@@ -119,19 +122,23 @@ class EventLoop(context: Context) {
   private def readData(key: SelectionKey, replicationState: Option[ReplicationState]): Option[ReplicationState] = {
     val client = key.channel().asInstanceOf[SocketChannel]
 
-    val isMasterChannel = replicationState.exists(_.context.masterChannel.contains(client))
-    if (isMasterChannel) {
+    if (replicationState.isDefined && replicationState.get.isMasterConnection(client)) {
       val buffer = ByteBuffer.allocate(1024)
       val bytesRead = client.read(buffer)
 
       if (bytesRead > 0) {
         buffer.flip()
         val response = new String(buffer.array(), 0, buffer.limit())
-        println(s"Received from master: $response")
+        println(s"Received from master: $response length ${response.length}")
+        println("**** Ending receive response ****")
 
         replicationState.map{ state =>
-          val (newState, action) = ProtocolManager.processEvent(state,ResponseReceived(response))
+          val (newState, action) = ProtocolManager.processEvent(state, ResponseReceived(response))
           ProtocolManager.executeAction(action, newState.context)
+          if (newState.isHandshakeDone) {
+            //val connection = connections(client)
+            //connection.readReplicationCommands(key)
+          }
           newState
         }
       } else if (bytesRead < 0) {

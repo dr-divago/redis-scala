@@ -36,6 +36,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     val bytes = new Array[Byte](buffer.remaining())
     buffer.get(bytes)
     val data = new String(bytes)
+    println(s"*** data ${data}")
     addData(data)
   }
 
@@ -78,6 +79,53 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     if (byteRead != -1) {  // Don't bother clearing if channel is closed
       buffer.clear()
     }
+  }
+
+
+  def readReplicationCommands(key: SelectionKey): Unit = {
+    println("Read replication commands")
+    if (buffer.position() > 0) {
+      println(s"buffer position ${buffer.position()}")
+      readData()
+      buffer.clear()
+    } else if (buffer.position() == buffer.limit()) {
+      println(s"buffer full ${buffer.position()}")
+      buffer.clear()
+    }
+
+    println(s"***Buffer before compact: position=${buffer.position()}, limit=${buffer.limit()}, capacity=${buffer.capacity()}")
+    val byteRead = socketChannel.read(buffer)
+    println(s"***Read returned: $byteRead bytes")
+    if (byteRead == -1) {
+      socketChannel.close()
+      key.cancel()
+      //connections.dropWhile(_.socketChannel == client)
+    }
+    else if (byteRead > 0) {
+      readData()
+
+      @tailrec
+      def processLine() : Unit = {
+        lineParser.nextLine() match {
+          case Some(line) =>
+            nextTask() match {
+              case Some(task) => parseReplicationCommand(line, task)
+              case None => println(s"***No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
+            }
+            processLine()
+          case None =>
+        }
+      }
+      processLine()
+
+    }
+    if (byteRead != -1) {  // Don't bother clearing if channel is closed
+      buffer.clear()
+    }
+  }
+
+  private def parseReplicationCommand(line: String, task: Task): Unit = {
+    println("****Parse Replica Command")
   }
 
   private def parseLine(line: String, task: Task, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
@@ -192,7 +240,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
         ch.write(buffer)
         buffer.rewind()
       } catch {
-        case e : IOException =>
+        case _: IOException =>
           println(s"Failed to propagate to replica ${ch.socket().getInetAddress}")
           try {
             ch.close()

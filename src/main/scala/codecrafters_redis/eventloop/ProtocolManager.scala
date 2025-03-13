@@ -39,17 +39,24 @@ case object ReplConfCapaSync extends State {
 
   override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
     case ResponseReceived(response) if response.contains("+OK") =>
-      (Completed, SendPsyncCommand)
+      (PSYNC, SendPsyncCommand)
   }
 }
 
-case object Completed extends State {
+case object PSYNC extends State {
   override def name: String = "PSYNC"
 
   override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
-    case ResponseReceived(response) if response.contains("+FULLRESYNC") =>
-      (this, NoAction)
+    case ResponseReceived(response) if response.contains("+FULLRESYNC") => (HandshakeComplete, ParseRDBFile(response))
     case _ => (this, NoAction)
+  }
+}
+
+case object HandshakeComplete extends State {
+  override def name: String = "HANDSHAKE_COMPLETE"
+
+  override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
+    case ResponseReceived(_) => (this, NoAction)
   }
 }
 
@@ -103,8 +110,25 @@ case object SendPsyncCommand extends Action {
   }
 }
 
+case class ParseRDBFile(response : String) extends Action {
+  override def execute(channel: SocketChannel): Unit = {
+    val lineParser = new LineParser()
+    lineParser.append(response)
+    val command = lineParser.nextLine().get
+    println(s"PARSE FULL ${command}")
+    val length = lineParser.nextLine().get
+    val lengthParsed = length.substring(1).toInt
+    val start = command.length + 2 + length.length + 2
+    val rdbFile = response.substring(start, start + lengthParsed-1)
+    println(s"PARSED ${rdbFile}")
+  }
+}
+
 case class ReplicationContext(port :Int, masterChannel: Option[SocketChannel] = None)
-case class ReplicationState(state: State, context : ReplicationContext)
+case class ReplicationState(state: State, context : ReplicationContext) {
+  def isHandshakeDone: Boolean = state == HandshakeComplete
+  def isMasterConnection(client: SocketChannel) : Boolean = context.masterChannel.contains(client)
+}
 
 object ProtocolManager {
   def apply(socketChannel: SocketChannel, port: Int): ReplicationState = {
