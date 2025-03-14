@@ -40,7 +40,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
 
-  def readDataFromClient(key: SelectionKey, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
+  def readDataFromClient(key: SelectionKey, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Option[ReplicationState] = {
     println("READ DATA FROM CLIENT")
     if (buffer.position() > 0) {
       println(s"buffer position ${buffer.position()}")
@@ -79,10 +79,11 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     if (byteRead != -1) {  // Don't bother clearing if channel is closed
       buffer.clear()
     }
+    None
   }
 
 
-  def readReplicationCommands(key: SelectionKey, replicationState: ReplicationState): Unit = {
+  def readReplicationCommands(key: SelectionKey, replicationState: ReplicationState): Option[ReplicationState] = {
     println("Read replication commands")
     if (buffer.position() > 0) {
       readData()
@@ -95,44 +96,52 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     if (byteRead == -1) {
       socketChannel.close()
       key.cancel()
+      Some(replicationState)
     }
     else if (byteRead > 0) {
       readData()
 
       @tailrec
-      def processLine() : Unit = {
+      def processLine(currentState: ReplicationState) : ReplicationState = {
         lineParser.nextLine() match {
           case Some(line) =>
             nextTask() match {
-              case Some(task) => parseReplicationCommand(line, task, replicationState)
-              case None => println(s"***No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
+              case Some(task) =>
+                val updatedState = parseReplicationCommand(line, task, currentState)
+                processLine(updatedState)
+              case None =>
+                println(s"***No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
+                currentState
             }
-            processLine()
-          case None =>
+          case None => currentState
         }
       }
-      processLine()
-
-    }
-    if (byteRead != -1) {
+      val updatedState = processLine(replicationState)
       buffer.clear()
+      Some(updatedState)
+    } else {
+      Some(replicationState)
     }
   }
 
-  private def parseReplicationCommand(line: String, task: Task, replicationState: ReplicationState): Unit = {
+  private def parseReplicationCommand(line: String, task: Task, replicationState: ReplicationState): ReplicationState = {
     println(s"****Parse Replica Command with $line and state ${replicationState.state}")
     ProtocolParser.parse(line, task.currentState) match {
       case Parsed(value, nextState) =>
         value.head match {
-          case "PONG" =>
+          case "PONG" | "OK" =>
             val (newState, action) = ProtocolManager.processEvent(replicationState, ResponseReceived(line))
             ProtocolManager.executeAction(action, newState.context)
-          case "OK" =>
-            val (newState, action) = ProtocolManager.processEvent(replicationState, ResponseReceived(line))
-            ProtocolManager.executeAction(action, newState.context)
+            addTask(new Task(nextState))
+            newState
+          case other =>
+            println(s"Unhandled response ${other}")
+            addTask(new Task(nextState))
+            replicationState
         }
+      case Continue(nextState) =>
         addTask(new Task(nextState))
-      case Continue(nextState) => addTask(new Task(nextState))
+        replicationState
     }
   }
 

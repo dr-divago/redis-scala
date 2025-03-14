@@ -45,6 +45,7 @@ class EventLoop(context: Context) {
             case key if key.isAcceptable => acceptClient(key)
             case key if key.isReadable =>
               replicationState = readData(key, replicationState)
+              println(s"EVENT LOOP ${replicationState}")
             case key if key.isConnectable =>
               replicationState = connectClient(key, replicationState)
           }
