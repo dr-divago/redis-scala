@@ -122,6 +122,7 @@ class EventLoop(context: Context) {
   private def readData(key: SelectionKey, replicationState: Option[ReplicationState]): Option[ReplicationState] = {
     val client = key.channel().asInstanceOf[SocketChannel]
 
+    /*
     if (replicationState.isDefined && replicationState.get.isMasterConnection(client)) {
       val buffer = ByteBuffer.allocate(1024)
       val bytesRead = client.read(buffer)
@@ -154,7 +155,10 @@ class EventLoop(context: Context) {
         replicationState
       }
     } else {
+
+     */
       connections.get(client) match {
+        case Some(connection) if replicationState.isDefined && replicationState.get.isMasterConnection(client) => connection.readReplicationCommands(key, replicationState.get)
         case Some(connection) => connection.readDataFromClient(key, replicaChannels)
         case None =>
           println("No connection found")
@@ -163,5 +167,5 @@ class EventLoop(context: Context) {
       }
       replicationState
     }
-  }
+  //}
 }

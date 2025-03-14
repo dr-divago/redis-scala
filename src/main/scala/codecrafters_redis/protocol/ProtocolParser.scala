@@ -15,6 +15,7 @@ object ProtocolParser {
       case WaitingForCommand() =>
         input.head match {
           case '*' => Continue(WaitingForBulkString(Vector(), input.tail.toInt))
+          case '+' => Parsed(Vector(input.tail), WaitingForCommand())
           case _   => throw new RuntimeException("First command should be a Array")
         }
       case WaitingForBulkString(currentValue, remaining) =>

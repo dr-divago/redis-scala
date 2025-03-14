@@ -1,7 +1,7 @@
 package codecrafters_redis.eventloop
 
 import codecrafters_redis.config.Context
-import codecrafters_redis.db.{ExpiresIn, InMemoryDB, NeverExpires}
+import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol.{Continue, Parsed, ProtocolParser}
 
 import java.io.IOException
@@ -36,11 +36,12 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     val bytes = new Array[Byte](buffer.remaining())
     buffer.get(bytes)
     val data = new String(bytes)
-    println(s"*** data ${data}")
     addData(data)
   }
 
+
   def readDataFromClient(key: SelectionKey, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
+    println("READ DATA FROM CLIENT")
     if (buffer.position() > 0) {
       println(s"buffer position ${buffer.position()}")
       readData()
@@ -56,7 +57,6 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     if (byteRead == -1) {
       socketChannel.close()
       key.cancel()
-      //connections.dropWhile(_.socketChannel == client)
     }
     else if (byteRead > 0) {
       readData()
@@ -82,24 +82,19 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
 
-  def readReplicationCommands(key: SelectionKey): Unit = {
+  def readReplicationCommands(key: SelectionKey, replicationState: ReplicationState): Unit = {
     println("Read replication commands")
     if (buffer.position() > 0) {
-      println(s"buffer position ${buffer.position()}")
       readData()
       buffer.clear()
     } else if (buffer.position() == buffer.limit()) {
-      println(s"buffer full ${buffer.position()}")
       buffer.clear()
     }
 
-    println(s"***Buffer before compact: position=${buffer.position()}, limit=${buffer.limit()}, capacity=${buffer.capacity()}")
     val byteRead = socketChannel.read(buffer)
-    println(s"***Read returned: $byteRead bytes")
     if (byteRead == -1) {
       socketChannel.close()
       key.cancel()
-      //connections.dropWhile(_.socketChannel == client)
     }
     else if (byteRead > 0) {
       readData()
@@ -109,7 +104,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
         lineParser.nextLine() match {
           case Some(line) =>
             nextTask() match {
-              case Some(task) => parseReplicationCommand(line, task)
+              case Some(task) => parseReplicationCommand(line, task, replicationState)
               case None => println(s"***No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
             }
             processLine()
@@ -119,13 +114,26 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
       processLine()
 
     }
-    if (byteRead != -1) {  // Don't bother clearing if channel is closed
+    if (byteRead != -1) {
       buffer.clear()
     }
   }
 
-  private def parseReplicationCommand(line: String, task: Task): Unit = {
-    println("****Parse Replica Command")
+  private def parseReplicationCommand(line: String, task: Task, replicationState: ReplicationState): Unit = {
+    println(s"****Parse Replica Command with $line and state ${replicationState.state}")
+    ProtocolParser.parse(line, task.currentState) match {
+      case Parsed(value, nextState) =>
+        value.head match {
+          case "PONG" =>
+            val (newState, action) = ProtocolManager.processEvent(replicationState, ResponseReceived(line))
+            ProtocolManager.executeAction(action, newState.context)
+          case "OK" =>
+            val (newState, action) = ProtocolManager.processEvent(replicationState, ResponseReceived(line))
+            ProtocolManager.executeAction(action, newState.context)
+        }
+        addTask(new Task(nextState))
+      case Continue(nextState) => addTask(new Task(nextState))
+    }
   }
 
   private def parseLine(line: String, task: Task, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
