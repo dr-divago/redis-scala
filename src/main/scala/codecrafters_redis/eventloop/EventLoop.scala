@@ -165,8 +165,8 @@ class EventLoop(context: Context) {
           println("No connection found")
           val connection = Connection(client, new Task(WaitingForCommand()), context)
           connections = connections.addOne(client, connection)
+          replicationState
       }
-      replicationState
     }
   //}
 }

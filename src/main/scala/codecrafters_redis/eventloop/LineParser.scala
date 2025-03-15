@@ -8,7 +8,7 @@ class LineParser(private val buffer : StringBuilder = new StringBuilder()) {
       return None
     }
     val line = buffer.substring(pos, endOfLineIdx)
-    println(s"LINE ${line}")
+    println(s"LINE $line")
     pos = endOfLineIdx + 2
     if (pos > buffer.length() / 2) {
       compactBuffer()

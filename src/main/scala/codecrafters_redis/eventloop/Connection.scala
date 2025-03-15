@@ -129,15 +129,11 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     ProtocolParser.parse(line, task.currentState) match {
       case Parsed(value, nextState) =>
         value.head match {
-          case "PONG" | "OK" =>
-            val (newState, action) = ProtocolManager.processEvent(replicationState, ResponseReceived(line))
+          case _ =>
+            val (newState, action) = ProtocolManager.processEvent(replicationState, ResponseReceived(value.head))
             ProtocolManager.executeAction(action, newState.context)
             addTask(new Task(nextState))
             newState
-          case other =>
-            println(s"Unhandled response ${other}")
-            addTask(new Task(nextState))
-            replicationState
         }
       case Continue(nextState) =>
         addTask(new Task(nextState))
