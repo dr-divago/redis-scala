@@ -123,50 +123,16 @@ class EventLoop(context: Context) {
   private def readData(key: SelectionKey, replicationState: Option[ReplicationState]): Option[ReplicationState] = {
     val client = key.channel().asInstanceOf[SocketChannel]
 
-    /*
-    if (replicationState.isDefined && replicationState.get.isMasterConnection(client)) {
-      val buffer = ByteBuffer.allocate(1024)
-      val bytesRead = client.read(buffer)
-
-      if (bytesRead > 0) {
-        buffer.flip()
-        val response = new String(buffer.array(), 0, buffer.limit())
-        println(s"Received from master: $response length ${response.length}")
-        println("**** Ending receive response ****")
-
-        replicationState.map{ state =>
-          val (newState, action) = ProtocolManager.processEvent(state, ResponseReceived(response))
-          ProtocolManager.executeAction(action, newState.context)
-          if (newState.isHandshakeDone) {
-            //val connection = connections(client)
-            //connection.readReplicationCommands(key)
-          }
-          newState
-        }
-      } else if (bytesRead < 0) {
-        println("Master connection closed")
-        key.cancel()
-        client.close()
-
-        replicationState.map { state =>
-          val (newState, _) = ProtocolManager.processEvent(state, ConnectionClosed)
-          newState
-        }
-      } else {
+    connections.get(client) match {
+      case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
+        println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
+        connection.readReplicationCommands(key, replicationState.get)
+      case Some(connection) => connection.readDataFromClient(key, replicaChannels)
+      case None =>
+        println("No connection found")
+        val connection = Connection(client, new Task(WaitingForCommand()), context)
+        connections = connections.addOne(client, connection)
         replicationState
-      }
-    } else {
-
-     */
-      connections.get(client) match {
-        case Some(connection) if replicationState.isDefined && replicationState.get.isMasterConnection(client) => connection.readReplicationCommands(key, replicationState.get)
-        case Some(connection) => connection.readDataFromClient(key, replicaChannels)
-        case None =>
-          println("No connection found")
-          val connection = Connection(client, new Task(WaitingForCommand()), context)
-          connections = connections.addOne(client, connection)
-          replicationState
-      }
     }
-  //}
+  }
 }
