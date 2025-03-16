@@ -2,7 +2,7 @@ package codecrafters_redis.eventloop
 
 import codecrafters_redis.config.Context
 import codecrafters_redis.db.{ExpiresIn, NeverExpires}
-import codecrafters_redis.protocol.{Continue, ParseState, Parsed, ParserResult, ProtocolParser, WaitingForCommand}
+import codecrafters_redis.protocol._
 
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -15,7 +15,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
   private val lineParser: LineParser = new LineParser()
   private val inMemoryDB = context.getDB
-  private val initialState : ParseState = WaitingForCommand()
+  private var initialState : ParseState = WaitingForCommand()
 
   private def addData(data: String) : Unit = {
     lineParser.append(data)
@@ -62,13 +62,35 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
   }
 
+  def processLine(data: String) : Unit = {
+    initialState = process(data, initialState)
+  }
 
-  final def process(data : String, parserResult: ParseState) : Option[ParserResult] = {
+  /// abcd/r/nefg/r/nilm
+  // abcd
+
+  def process(data: String, parserState: ParseState): ParserResult = {
     lineParser.append(data)
-    lineParser.nextLine() match {
-      case Some(line) => Some(ProtocolParser.parse(line, parserResult))
-      case None => None
+
+    @tailrec
+    def processNextLine(currentState: ParseState): ParserResult = {
+      lineParser.nextLine() match {
+        case Some(line) =>
+          val result = ProtocolParser.parse(line, currentState)
+
+          val nextState = result match {
+            case Parsed(_, nextState) => nextState
+            case Continue(nextState) => nextState
+          }
+
+          processNextLine(nextState)
+
+        case None =>
+          Continue(currentState)
+      }
     }
+
+    processNextLine(parserState)
   }
 
   def readDataFromClient(key: SelectionKey, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Option[ReplicationState] = {

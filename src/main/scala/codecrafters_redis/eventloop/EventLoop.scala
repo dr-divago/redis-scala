@@ -4,7 +4,6 @@ import codecrafters_redis.config.{Config, Context}
 import codecrafters_redis.protocol._
 
 import java.net.InetSocketAddress
-import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
@@ -30,12 +29,13 @@ class EventLoop(context: Context) {
         None
       }
 
-    mainEventLoop(selector, initialReplicationState)
+    mainEventLoop(selector, initialReplicationState, WaitingForCommand())
 
   }
 
-  private def mainEventLoop(selector: Selector, initialReplicationState : Option[ReplicationState]): Unit = {
+  private def mainEventLoop(selector: Selector, initialReplicationState : Option[ReplicationState], initialParserState : ParseState): Unit = {
     var replicationState = initialReplicationState
+    var parserState = initialParserState
     while (true) {
       if (selector.select() > 0) {
         val keys = selector.selectedKeys()
@@ -127,7 +127,8 @@ class EventLoop(context: Context) {
       case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
         println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
         val data : String = connection.readData(key)
-        connection.process(data)
+        connection.processLine(data)
+        val parserState = connection.process(data)
         val updatedState = connection.readReplicationCommands(key, replicationState.get)
         if (updatedState.exists(_.isHandshakeDone) && !replicationState.get.isHandshakeDone) {
           // Explicitly handle the transition
