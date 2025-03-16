@@ -5,4 +5,3 @@ import codecrafters_redis.protocol.ParseState
 import java.io.{BufferedReader, InputStreamReader, OutputStream}
 import java.net.Socket
 
-class Task(val currentState: ParseState)

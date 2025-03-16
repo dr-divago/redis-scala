@@ -68,7 +68,7 @@ class EventLoop(context: Context) {
           println(s"Context port ${newState.context.masterChannel.get.socket().getPort}")
           ProtocolManager.executeAction(action, newState.context)
           key.interestOps(SelectionKey.OP_READ)
-          val connectionToMaster = Connection(newState.context.masterChannel.get, new Task(WaitingForCommand()), context)
+          val connectionToMaster = Connection(newState.context.masterChannel.get, context)
           connections.addOne(newState.context.masterChannel.get, connectionToMaster)
           newState
         }
@@ -98,7 +98,7 @@ class EventLoop(context: Context) {
       val (newState, action) = ProtocolManager.processEvent(initialState, ConnectionEstablished)
       ProtocolManager.executeAction(action, newState.context)
       masterChannel.register(selector, SelectionKey.OP_READ)
-      val connectionToMaster = Connection(masterChannel, new Task(WaitingForCommand()), context)
+      val connectionToMaster = Connection(masterChannel, context)
       connections.addOne(masterChannel, connectionToMaster)
       newState
     }
@@ -116,7 +116,7 @@ class EventLoop(context: Context) {
     println(s"CONNECT: ${client.socket().getInetAddress}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
-    val connection = Connection(client, new Task(WaitingForCommand()), context)
+    val connection = Connection(client, context)
     connections.addOne(client, connection)
   }
 
@@ -126,13 +126,25 @@ class EventLoop(context: Context) {
     connections.get(client) match {
       case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
         println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
-        connection.readReplicationCommands(key, replicationState.get)
+        val data : String = connection.readData(key)
+        connection.process(data)
+        val updatedState = connection.readReplicationCommands(key, replicationState.get)
+        if (updatedState.exists(_.isHandshakeDone) && !replicationState.get.isHandshakeDone) {
+          // Explicitly handle the transition
+          handleHandshakeCompletion(connection)
+        }
+        updatedState
       case Some(connection) => connection.readDataFromClient(key, replicaChannels)
       case None =>
         println("No connection found")
-        val connection = Connection(client, new Task(WaitingForCommand()), context)
+        val connection = Connection(client, context)
         connections = connections.addOne(client, connection)
         replicationState
     }
+  }
+
+  private def handleHandshakeCompletion(connection: Connection): Unit = {
+    println("Handshake completed - transitioning to normal operation mode")
+    // Reset the connection's state for normal operation
   }
 }

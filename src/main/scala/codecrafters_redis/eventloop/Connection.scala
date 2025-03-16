@@ -2,7 +2,7 @@ package codecrafters_redis.eventloop
 
 import codecrafters_redis.config.Context
 import codecrafters_redis.db.{ExpiresIn, NeverExpires}
-import codecrafters_redis.protocol.{Continue, Parsed, ProtocolParser}
+import codecrafters_redis.protocol.{Continue, ParseState, Parsed, ParserResult, ProtocolParser, WaitingForCommand}
 
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -14,17 +14,8 @@ import scala.collection.mutable
 case class Connection(socketChannel: SocketChannel, context: Context) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
   private val lineParser: LineParser = new LineParser()
-  private val tasks: mutable.Queue[Task] = mutable.Queue.empty
   private val inMemoryDB = context.getDB
-
-  def addTask(task : Task) : Unit = {
-    tasks.enqueue(task)
-  }
-
-  private def nextTask() : Option[Task] = {
-    if (tasks.isEmpty) None
-    else Some(tasks.dequeue())
-  }
+  private val initialState : ParseState = WaitingForCommand()
 
   private def addData(data: String) : Unit = {
     lineParser.append(data)
@@ -32,28 +23,64 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
   def readData() : Unit = {
     buffer.flip()
-
     val bytes = new Array[Byte](buffer.remaining())
     buffer.get(bytes)
     val data = new String(bytes)
     addData(data)
   }
 
+  private def getData: String = {
+    buffer.flip()
+    val bytes = new Array[Byte](buffer.remaining())
+    buffer.get(bytes)
+    new String(bytes)
+  }
+
+  def readData(key: SelectionKey) : String = {
+    val sb = new StringBuilder()
+    if (buffer.position() > 0) {
+      sb.append(getData)
+      buffer.clear()
+    } else if (buffer.position() == buffer.limit()) {
+      buffer.clear()
+    }
+
+    val byteRead = socketChannel.read(buffer)
+    if (byteRead == -1) {
+      socketChannel.close()
+      key.cancel()
+    }
+    else if (byteRead > 0) {
+      sb.append(getData)
+
+    }
+    if (byteRead != -1) {  // Don't bother clearing if channel is closed
+      buffer.clear()
+    }
+
+    sb.mkString
+
+  }
+
+
+  final def process(data : String, parserResult: ParseState) : Option[ParserResult] = {
+    lineParser.append(data)
+    lineParser.nextLine() match {
+      case Some(line) => Some(ProtocolParser.parse(line, parserResult))
+      case None => None
+    }
+  }
 
   def readDataFromClient(key: SelectionKey, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Option[ReplicationState] = {
     println("READ DATA FROM CLIENT")
     if (buffer.position() > 0) {
-      println(s"buffer position ${buffer.position()}")
       readData()
       buffer.clear()
     } else if (buffer.position() == buffer.limit()) {
-      println(s"buffer full ${buffer.position()}")
       buffer.clear()
     }
 
-    println(s"Buffer before compact: position=${buffer.position()}, limit=${buffer.limit()}, capacity=${buffer.capacity()}")
     val byteRead = socketChannel.read(buffer)
-    println(s"Read returned: $byteRead bytes")
     if (byteRead == -1) {
       socketChannel.close()
       key.cancel()
@@ -124,25 +151,29 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     }
   }
 
-  private def parseReplicationCommand(line: String, task: Task, replicationState: ReplicationState): ReplicationState = {
+  private def parseReplicationCommand(line: String, parseState: ParseState, replicationState: ReplicationState): (ParseState, ReplicationState) = {
     println(s"****Parse Replica Command with $line and state ${replicationState.state}")
-    ProtocolParser.parse(line, task.currentState) match {
+
+    if (replicationState.isHandshakeDone) {
+      println("Handshake complete, returning to normal command processing")
+      return replicationState
+    }
+
+    ProtocolParser.parse(line, parseState) match {
       case Parsed(value, nextState) =>
         value.head match {
           case _ =>
             val (newState, action) = ProtocolManager.processEvent(replicationState, ResponseReceived(value.head))
             ProtocolManager.executeAction(action, newState.context)
-            addTask(new Task(nextState))
-            newState
+            (nextState, newState)
         }
       case Continue(nextState) =>
-        addTask(new Task(nextState))
-        replicationState
+        (nextState, replicationState)
     }
   }
 
-  private def parseLine(line: String, task: Task, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
-    ProtocolParser.parse(line, task.currentState) match {
+  private def parseLine(line: String, parseState: ParseState, replicaChannels: mutable.ArrayBuffer[SocketChannel]): ParseState = {
+    ProtocolParser.parse(line, parseState) match {
       case Parsed(value, nextState) =>
         value.head match {
           case "PING"       =>  socketChannel.write(ByteBuffer.wrap("+PONG\r\n".getBytes))
@@ -156,8 +187,8 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
           case "PSYNC"      =>  handlePSyncCommand(value, replicaChannels)
           case "FULLRESYNC" =>  handleFullResync(value)
         }
-        addTask(new Task(nextState))
-      case Continue(nextState) => addTask(new Task(nextState))
+        nextState
+      case Continue(nextState) => nextState
     }
   }
 
@@ -178,6 +209,10 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
     replicaChannels += socketChannel
     println(s"New replica connected: ${socketChannel.socket().getInetAddress} ${socketChannel.socket().getPort}")
+  }
+
+  def clearTasks(): Unit = {
+    tasks.clear()
   }
 
   private def handleReplConfCommand(value: Vector[String]) = {
@@ -277,9 +312,8 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
 
 object Connection {
-  def apply(socketChannel: SocketChannel, initialTask: Task, context: Context) : Connection = {
-    val connection = Connection(socketChannel, context)
-    connection.addTask(initialTask)
+  def apply(socketChannel: SocketChannel, initialState: ParseState = WaitingForCommand(), context: Context) : Connection = {
+    val connection = Connection(socketChannel, initialState, context)
     connection
   }
 }
