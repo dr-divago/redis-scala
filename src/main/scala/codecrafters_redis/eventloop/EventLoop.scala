@@ -1,9 +1,12 @@
 package codecrafters_redis.eventloop
 
+import codecrafters_redis.command.{Command, Get, Set}
 import codecrafters_redis.config.{Config, Context}
+import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol._
 
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
@@ -29,13 +32,12 @@ class EventLoop(context: Context) {
         None
       }
 
-    mainEventLoop(selector, initialReplicationState, WaitingForCommand())
+    mainEventLoop(selector, initialReplicationState)
 
   }
 
-  private def mainEventLoop(selector: Selector, initialReplicationState : Option[ReplicationState], initialParserState : ParseState): Unit = {
+  private def mainEventLoop(selector: Selector, initialReplicationState : Option[ReplicationState]): Unit = {
     var replicationState = initialReplicationState
-    var parserState = initialParserState
     while (true) {
       if (selector.select() > 0) {
         val keys = selector.selectedKeys()
@@ -127,15 +129,30 @@ class EventLoop(context: Context) {
       case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
         println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
         val data : String = connection.readData(key)
-        connection.processLine(data)
-        val parserState = connection.process(data)
-        val updatedState = connection.readReplicationCommands(key, replicationState.get)
-        if (updatedState.exists(_.isHandshakeDone) && !replicationState.get.isHandshakeDone) {
-          // Explicitly handle the transition
-          handleHandshakeCompletion(connection)
+        val commandOpt = connection.process(data)
+
+        commandOpt.foreach { cmd => connection.write(cmd.execute())}
+        replicationState
+
+      case Some(connection) =>
+        println("****NORMAL CONNECTION FLOW****")
+        val data : String = connection.readData(key)
+        val commandOpt = connection.process(data)
+
+        /*
+        commandOpt match {
+          case Some(Set(key, value, expiry)) if expiry.isDefined => context.getDB.add(key, value, ExpiresIn(expiry.get))
+          case Some(Set(key, value, _)) => context.getDB.add(key, value, NeverExpires())
+          case Some(Get(value)) => context.getDB.get(value)
+          case _ =>
         }
-        updatedState
-      case Some(connection) => connection.readDataFromClient(key, replicaChannels)
+
+         */
+
+        commandOpt.foreach { cmd => connection.write(cmd.execute(context.getDB))}
+        replicationState
+        //connection.readDataFromClient(key, replicaChannels)
+
       case None =>
         println("No connection found")
         val connection = Connection(client, context)

@@ -11,11 +11,11 @@ case class ExpiresIn(time : Long) extends Expiration
 case class NeverExpires() extends Expiration
 
 
-class InMemoryDB {
+class MemoryDB {
   private val db = new TrieMap[String, String]()
   private val scheduler = Executors.newScheduledThreadPool(1)
 
-  def add(key: String, value: String, expiration: Expiration): InMemoryDB = {
+  def add(key: String, value: String, expiration: Expiration): MemoryDB = {
     db.put(key, value)
     expiration match {
       case ExpiresIn(time) =>

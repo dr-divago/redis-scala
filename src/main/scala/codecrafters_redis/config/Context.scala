@@ -1,6 +1,6 @@
 package codecrafters_redis.config
 
-import codecrafters_redis.db.{ExpiresAt, InMemoryDB, NeverExpires}
+import codecrafters_redis.db.{ExpiresAt, MemoryDB, NeverExpires}
 import codecrafters_redis.protocol.RDBDecoder
 
 import java.io.File
@@ -9,8 +9,8 @@ import java.nio.file.{Files, Paths}
 
 case class Context(config: Config,
                    masterSocket: Option[Socket] = None) {
-  def getDB: InMemoryDB = {
-    val inMemoryDB = new InMemoryDB
+  def getDB: MemoryDB = {
+    val inMemoryDB = new MemoryDB
     if (config.dbParam.isEmpty)
       return inMemoryDB
 

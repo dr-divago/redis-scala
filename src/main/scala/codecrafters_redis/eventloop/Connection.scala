@@ -1,5 +1,6 @@
 package codecrafters_redis.eventloop
 
+import codecrafters_redis.command.Command
 import codecrafters_redis.config.Context
 import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol._
@@ -14,20 +15,7 @@ import scala.collection.mutable
 case class Connection(socketChannel: SocketChannel, context: Context) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
   private val lineParser: LineParser = new LineParser()
-  private val inMemoryDB = context.getDB
-  private var initialState : ParseState = WaitingForCommand()
-
-  private def addData(data: String) : Unit = {
-    lineParser.append(data)
-  }
-
-  def readData() : Unit = {
-    buffer.flip()
-    val bytes = new Array[Byte](buffer.remaining())
-    buffer.get(bytes)
-    val data = new String(bytes)
-    addData(data)
-  }
+  private var parsingState : ParseState = WaitingForCommand()
 
   private def getData: String = {
     buffer.flip()
@@ -54,20 +42,21 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
       sb.append(getData)
 
     }
-    if (byteRead != -1) {  // Don't bother clearing if channel is closed
+    if (byteRead != -1) {
       buffer.clear()
     }
-
     sb.mkString
-
   }
 
-  def processLine(data: String) : Unit = {
-    initialState = process(data, initialState)
+  def process(data: String): Option[Command] = {
+    val parserResult = process(data, parsingState)
+    val nextState = parserResult match {
+      case Parsed(_, nextState) => nextState
+      case Continue(nextState) => nextState
+    }
+    parsingState = nextState
+    Command.parse(parserResult)
   }
-
-  /// abcd/r/nefg/r/nilm
-  // abcd
 
   def process(data: String, parserState: ParseState): ParserResult = {
     lineParser.append(data)
@@ -78,107 +67,25 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
         case Some(line) =>
           val result = ProtocolParser.parse(line, currentState)
 
-          val nextState = result match {
-            case Parsed(_, nextState) => nextState
-            case Continue(nextState) => nextState
+          result match {
+            case parsed: Parsed => parsed
+            case Continue(nextState) => processNextLine(nextState)
           }
 
-          processNextLine(nextState)
-
-        case None =>
-          Continue(currentState)
+        case None => Continue(currentState)
       }
     }
 
     processNextLine(parserState)
   }
 
-  def readDataFromClient(key: SelectionKey, replicaChannels: mutable.ArrayBuffer[SocketChannel]): Option[ReplicationState] = {
-    println("READ DATA FROM CLIENT")
-    if (buffer.position() > 0) {
-      readData()
-      buffer.clear()
-    } else if (buffer.position() == buffer.limit()) {
-      buffer.clear()
-    }
-
-    val byteRead = socketChannel.read(buffer)
-    if (byteRead == -1) {
-      socketChannel.close()
-      key.cancel()
-    }
-    else if (byteRead > 0) {
-      readData()
-
-      @tailrec
-      def processLine() : Unit = {
-        lineParser.nextLine() match {
-          case Some(line) =>
-            nextTask() match {
-              case Some(task) => parseLine(line, task, replicaChannels)
-              case None => println(s"No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
-            }
-            processLine()
-          case None =>
-        }
-      }
-      processLine()
-
-    }
-    if (byteRead != -1) {  // Don't bother clearing if channel is closed
-      buffer.clear()
-    }
-    None
-  }
-
-
-  def readReplicationCommands(key: SelectionKey, replicationState: ReplicationState): Option[ReplicationState] = {
-    println("Read replication commands")
-    if (buffer.position() > 0) {
-      readData()
-      buffer.clear()
-    } else if (buffer.position() == buffer.limit()) {
-      buffer.clear()
-    }
-
-    val byteRead = socketChannel.read(buffer)
-    if (byteRead == -1) {
-      socketChannel.close()
-      key.cancel()
-      Some(replicationState)
-    }
-    else if (byteRead > 0) {
-      readData()
-
-      @tailrec
-      def processLine(currentState: ReplicationState) : ReplicationState = {
-        lineParser.nextLine() match {
-          case Some(line) =>
-            nextTask() match {
-              case Some(task) =>
-                val updatedState = parseReplicationCommand(line, task, currentState)
-                processLine(updatedState)
-              case None =>
-                println(s"***No task found for client ${socketChannel.socket().getInetAddress}:${socketChannel.socket().getPort}")
-                currentState
-            }
-          case None => currentState
-        }
-      }
-      val updatedState = processLine(replicationState)
-      buffer.clear()
-      Some(updatedState)
-    } else {
-      Some(replicationState)
-    }
-  }
 
   private def parseReplicationCommand(line: String, parseState: ParseState, replicationState: ReplicationState): (ParseState, ReplicationState) = {
     println(s"****Parse Replica Command with $line and state ${replicationState.state}")
 
     if (replicationState.isHandshakeDone) {
       println("Handshake complete, returning to normal command processing")
-      return replicationState
+      return (WaitingForCommand(), replicationState)
     }
 
     ProtocolParser.parse(line, parseState) match {
@@ -233,10 +140,6 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     println(s"New replica connected: ${socketChannel.socket().getInetAddress} ${socketChannel.socket().getPort}")
   }
 
-  def clearTasks(): Unit = {
-    tasks.clear()
-  }
-
   private def handleReplConfCommand(value: Vector[String]) = {
     socketChannel.write(ByteBuffer.wrap("+OK\r\n".getBytes))
   }
@@ -252,10 +155,13 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
   private def handleKeysCommand(value: Vector[String]) = {
+    /*
     val keys = inMemoryDB.keys()
     val responseMsg = buildKeyCommand(keys)
     val fullMsg = ByteBuffer.wrap(responseMsg.getBytes)
     socketChannel.write(fullMsg)
+
+     */
   }
 
   private def buildKeyCommand(keys : Iterable[String]): String = {
@@ -274,14 +180,18 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
   private def handleGetCommand(key: String): Unit = {
+    /*
     val value : Option[String] = inMemoryDB.get(key)
     value match {
       case Some(v) => socketChannel.write(ByteBuffer.wrap(("$" + v.length + "\r\n" + v + "\r\n").getBytes))
       case None => socketChannel.write(ByteBuffer.wrap("$-1\r\n".getBytes))
     }
+
+     */
   }
 
   private def handleSetCommand(value: Vector[String], replicaChannel : mutable.ArrayBuffer[SocketChannel]) = {
+    /*
     if (context.config.replicaof.nonEmpty) {
       println("I am in replica")
     }
@@ -296,6 +206,8 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
         inMemoryDB.add(value(1), value(2), ExpiresIn(milliseconds.toLong))
     }
     propagateToReplicas(value, replicaChannel)
+
+     */
   }
 
   private def propagateToReplicas(value:  Vector[String], replicaChannels : mutable.ArrayBuffer[SocketChannel]) = {
@@ -329,6 +241,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     s"*${value.length}\r\n${commandParts.mkString}"
   }
 
+  def write(data : String): Int = socketChannel.write(ByteBuffer.wrap(data.getBytes))
 }
 
 
