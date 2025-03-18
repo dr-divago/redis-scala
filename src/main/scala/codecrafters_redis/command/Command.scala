@@ -4,8 +4,11 @@ import codecrafters_redis.config.Context
 import codecrafters_redis.db.{ExpiresIn, MemoryDB, NeverExpires}
 import codecrafters_redis.protocol.{Continue, Parsed, ParserResult}
 
+import java.io.IOException
 import java.nio.ByteBuffer
+import java.nio.channels.SocketChannel
 import java.nio.file.{Files, Paths}
+import scala.collection.mutable
 import scala.util.Try
 
 sealed trait Command {
@@ -22,7 +25,16 @@ case class Echo(message: String) extends Command {
 case class Set(key: String, value: String, expiry: Option[Int] = None) extends Command {
   override def execute(context: Context): Array[Byte] = {
     context.getDB.add(key, value, expiry.map(ExpiresIn(_)).getOrElse(NeverExpires()))
+    propagateToReplicas(key, value, context.replicaChannels)
     "+OK\r\n".getBytes
+  }
+
+  private def propagateToReplicas(key: String, value: String, replicaChannels: mutable.Seq[SocketChannel]) = ???
+
+
+  private def buildSetCommand(value: Vector[String]): String = {
+    val commandParts = value.map(part => s"$$${part.length}\r\n$part\r\n")
+    s"*${value.length}\r\n${commandParts.mkString}"
   }
 }
 

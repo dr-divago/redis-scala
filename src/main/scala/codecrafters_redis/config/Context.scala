@@ -5,7 +5,9 @@ import codecrafters_redis.protocol.RDBDecoder
 
 import java.io.File
 import java.net.Socket
+import java.nio.channels.SocketChannel
 import java.nio.file.{Files, Paths}
+import scala.collection.mutable
 
 case class Context(config: Config,
                    masterSocket: Option[Socket] = None) {
@@ -59,4 +61,6 @@ case class Context(config: Config,
   def getMasterId : String = {
     "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
   }
+
+  val replicaChannels: mutable.Seq[SocketChannel] = mutable.ArrayBuffer[SocketChannel]()
 }
