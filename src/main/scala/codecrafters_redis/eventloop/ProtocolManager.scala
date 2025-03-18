@@ -1,5 +1,7 @@
 package codecrafters_redis.eventloop
 
+import codecrafters_redis.command.{ConnectionClosed, ConnectionEstablished, DimensionReplication, Event, FullResync, OkEvent, PongEvent}
+
 import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
 
@@ -21,16 +23,14 @@ case object PingHandshake extends State {
   def name : String = "PING_HANDSHAKE"
 
   override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
-    case ResponseReceived(resp) if resp.contains("PONG") =>
-      (ReplConfListingPortFirst, SendReplConfListeningCommand(context.port))
+    case PongEvent => (ReplConfListingPortFirst, SendReplConfListeningCommand(context.port))
   }
 }
 
 case object ReplConfListingPortFirst extends State {
   override def name: String = "REPLCONF_LISTENING_PORT"
   override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
-    case ResponseReceived(response) if response.contains("OK") =>
-      (ReplConfCapaSync, SendReplConfCapa)
+    case OkEvent => (ReplConfCapaSync, SendReplConfCapa)
   }
 }
 
@@ -38,8 +38,7 @@ case object ReplConfCapaSync extends State {
   override def name: String = "REPLCONF_CAPA_PSYNC2"
 
   override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
-    case ResponseReceived(response) if response.contains("OK") =>
-      (PSYNC, SendPsyncCommand)
+    case OkEvent => (PSYNC, SendPsyncCommand)
   }
 }
 
@@ -47,7 +46,7 @@ case object PSYNC extends State {
   override def name: String = "PSYNC"
 
   override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
-    case ResponseReceived(response) if response.contains("FULLRESYNC") => (ParseRDBFile(ExpectingDimension), NoAction)
+    case FullResync => (ParseRDBFile(ExpectingDimension), NoAction)
     case _ => (this, NoAction)
   }
 }
@@ -62,15 +61,15 @@ case class ParseRDBFile(phase : RDBParsingPhase = ExpectingDimension) extends St
 
   override def handle(event: Event, context: ReplicationContext): (State, Action) = {
     event match {
-      case ResponseReceived(response) =>
+      case DimensionReplication(dim) =>
         phase match {
           case ExpectingDimension =>
-            val dimension = response.toInt
-            println(s"Parse RDB file dimension ${dimension}")
-            (ParseRDBFile(ExpectingData(dimension)), NoAction)
+            println(s"Parse RDB file dimension $dim")
+            (ParseRDBFile(ExpectingData(dim)), NoAction)
           case ExpectingData(dimension, bytesReceived) =>
-            println(s"Parse RDB file ${bytesReceived}")
-            val receivedBytes = response.getBytes.length
+            println(s"Parse RDB file $bytesReceived")
+            //val receivedBytes = response.getBytes.length
+            val receivedBytes = 0
             val totalBytesReceived = bytesReceived + receivedBytes
 
             if (totalBytesReceived >= dimension) {
@@ -87,15 +86,9 @@ case object HandshakeComplete extends State {
   override def name: String = "HANDSHAKE_COMPLETE"
 
   override def handle(event: Event, context: ReplicationContext): (State, Action) = event match {
-    case ResponseReceived(_) => (this, NoAction)
+    case _ => (this, NoAction)
   }
 }
-
-
-sealed trait Event
-case object ConnectionEstablished extends Event
-case class ResponseReceived(response: String) extends Event
-case object ConnectionClosed extends Event
 
 sealed trait Action {
   def execute(channel : SocketChannel) : Unit

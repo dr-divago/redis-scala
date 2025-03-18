@@ -1,13 +1,11 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.{Command, Get, Set}
+import codecrafters_redis.command.{ConnectionEstablished, Psync}
 import codecrafters_redis.config.{Config, Context}
-import codecrafters_redis.db.{ExpiresIn, NeverExpires}
-import codecrafters_redis.protocol._
 
 import java.net.InetSocketAddress
-import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
+import java.nio.file.{Files, Paths}
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 
@@ -47,7 +45,7 @@ class EventLoop(context: Context) {
             case key if key.isAcceptable => acceptClient(key)
             case key if key.isReadable =>
               replicationState = readData(key, replicationState)
-              println(s"EVENT LOOP ${replicationState}")
+              println(s"EVENT LOOP $replicationState")
             case key if key.isConnectable =>
               replicationState = connectClient(key, replicationState)
           }
@@ -67,7 +65,6 @@ class EventLoop(context: Context) {
         println("Connected to master")
         replicationState.map { state =>
           val (newState, action) = ProtocolManager.processEvent(state, ConnectionEstablished)
-          println(s"Context port ${newState.context.masterChannel.get.socket().getPort}")
           ProtocolManager.executeAction(action, newState.context)
           key.interestOps(SelectionKey.OP_READ)
           val connectionToMaster = Connection(newState.context.masterChannel.get, context)
@@ -112,10 +109,9 @@ class EventLoop(context: Context) {
   }
 
   private def acceptClient(key: SelectionKey): Unit = {
-    println("acceptClient")
     val serverChannel = key.channel().asInstanceOf[ServerSocketChannel]
     val client = serverChannel.accept()
-    println(s"CONNECT: ${client.socket().getInetAddress}")
+    println(s"CONNECT IP : ${client.socket().getInetAddress} PORT: ${client.socket().getPort}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
     val connection = Connection(client, context)
@@ -129,27 +125,26 @@ class EventLoop(context: Context) {
       case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
         println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
         val data : String = connection.readData(key)
-        val commandOpt = connection.process(data)
+        val event = connection.processResponse(data)
 
-        commandOpt.foreach { cmd => connection.write(cmd.execute())}
-        replicationState
+        val (newState, action) = ProtocolManager.processEvent(replicationState.get, event.orNull)
+        ProtocolManager.executeAction(action, newState.context)
+
+        //commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
+        Some(newState)
 
       case Some(connection) =>
         println("****NORMAL CONNECTION FLOW****")
         val data : String = connection.readData(key)
         val commandOpt = connection.process(data)
 
-        /*
         commandOpt match {
-          case Some(Set(key, value, expiry)) if expiry.isDefined => context.getDB.add(key, value, ExpiresIn(expiry.get))
-          case Some(Set(key, value, _)) => context.getDB.add(key, value, NeverExpires())
-          case Some(Get(value)) => context.getDB.get(value)
-          case _ =>
+          case Some(Psync) =>
+            commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
+            connection.write(Files.readAllBytes(Paths.get("empty.rdb")))
+          case _ => commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
         }
-
-         */
-
-        commandOpt.foreach { cmd => connection.write(cmd.execute(context.getDB))}
+        //commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
         replicationState
         //connection.readDataFromClient(key, replicaChannels)
 

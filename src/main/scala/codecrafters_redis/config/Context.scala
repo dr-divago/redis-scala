@@ -9,26 +9,31 @@ import java.nio.file.{Files, Paths}
 
 case class Context(config: Config,
                    masterSocket: Option[Socket] = None) {
-  def getDB: MemoryDB = {
-    val inMemoryDB = new MemoryDB
-    if (config.dbParam.isEmpty)
-      return inMemoryDB
 
-    val path = Paths.get(config.dirParam+File.separator+config.dbParam)
-    if (!Files.exists(path))
-      return inMemoryDB
+  private lazy val memoryDBInstance: MemoryDB = {
+    val memoryDB = new MemoryDB
 
-    val fileByte: Array[Byte] = Files.readAllBytes(path)
-    RDBDecoder.readKeyValue(fileByte).foreach(kv => {
-      if (kv._3.isDefined) {
-        inMemoryDB.add(kv._1, kv._2, ExpiresAt(kv._3.get))
+    if (config.dbParam.isEmpty) {
+      memoryDB
+    } else {
+      val path = Paths.get(config.dirParam + File.separator + config.dbParam)
+      if (!Files.exists(path)) {
+        memoryDB
+      } else {
+        val fileByte: Array[Byte] = Files.readAllBytes(path)
+        RDBDecoder.readKeyValue(fileByte).foreach(kv => {
+          if (kv._3.isDefined) {
+            memoryDB.add(kv._1, kv._2, ExpiresAt(kv._3.get))
+          } else {
+            memoryDB.add(kv._1, kv._2, NeverExpires())
+          }
+        })
+        memoryDB
       }
-      else {
-        inMemoryDB.add(kv._1, kv._2, NeverExpires())
-      }
-    })
-    inMemoryDB
+    }
   }
+
+  def getDB: MemoryDB = memoryDBInstance
 
   def getPort: Int = {
     config.port.toInt

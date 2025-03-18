@@ -15,7 +15,7 @@ object ProtocolParser {
       case WaitingForCommand() =>
         input.head match {
           case '*' => Continue(WaitingForBulkString(Vector(), input.tail.toInt))
-          case _ => Parsed(Vector(input.tail), WaitingForCommand())
+          case _ => Parsed(split(input.tail), WaitingForCommand())
         }
       case WaitingForBulkString(currentValue, remaining) =>
         input.head match {
@@ -28,5 +28,9 @@ object ProtocolParser {
           case _ => Continue(WaitingForBulkString(currentValue :+ input, remaining - 1))
         }
     }
+  }
+
+  def split(value : String) : Vector[String] = {
+    value.split(" ").toVector
   }
 }
