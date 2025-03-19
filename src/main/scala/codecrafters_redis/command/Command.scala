@@ -1,13 +1,12 @@
 package codecrafters_redis.command
 
 import codecrafters_redis.config.Context
-import codecrafters_redis.db.{ExpiresIn, MemoryDB, NeverExpires}
+import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol.{Continue, Parsed, ParserResult}
 
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
-import java.nio.file.{Files, Paths}
 import scala.collection.mutable
 import scala.util.Try
 
@@ -29,12 +28,32 @@ case class Set(key: String, value: String, expiry: Option[Int] = None) extends C
     "+OK\r\n".getBytes
   }
 
-  private def propagateToReplicas(key: String, value: String, replicaChannels: mutable.Seq[SocketChannel]) = ???
+  private def propagateToReplicas(key: String, value: String, replicaChannels: mutable.Seq[SocketChannel]) = {
+    val command = s"*3\r\n$$3\r\nSET\r\n$$${key.length}\r\n$key\r\n$$${value.length}\r\n$value\r\n"
 
+    println(s"********* PROPAGATE TO REPLICAS ${command} ********** ")
+    val buffer = ByteBuffer.wrap(command.getBytes)
 
-  private def buildSetCommand(value: Vector[String]): String = {
-    val commandParts = value.map(part => s"$$${part.length}\r\n$part\r\n")
-    s"*${value.length}\r\n${commandParts.mkString}"
+    val failedChannels = mutable.ArrayBuffer[SocketChannel]()
+
+    for (ch <- replicaChannels) {
+      try {
+        ch.write(buffer)
+        buffer.rewind()
+      } catch {
+        case _: IOException =>
+          println(s"Failed to propagate to replica ${ch.socket().getInetAddress}")
+          try {
+            ch.close()
+          } catch {
+            case _ : IOException =>
+          }
+          failedChannels += ch
+      }
+    }
+    if (failedChannels.nonEmpty) {
+      println("ERRORE PROPAGATE COMMAND")
+    }
   }
 }
 

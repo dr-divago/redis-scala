@@ -16,17 +16,14 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   private val lineParser: LineParser = new LineParser()
   private var parsingState : ParseState = WaitingForCommand()
 
-  private def getData: String = {
-    buffer.flip()
-    val bytes = new Array[Byte](buffer.remaining())
-    buffer.get(bytes)
-    new String(bytes)
-  }
+  private val byteAccumulator = new scala.collection.mutable.ArrayBuffer[Byte]()
 
-  def readData(key: SelectionKey) : String = {
-    val sb = new StringBuilder()
+  def readData(key: SelectionKey): Array[Byte] = {
     if (buffer.position() > 0) {
-      sb.append(getData)
+      buffer.flip()
+      val bytes = new Array[Byte](buffer.remaining())
+      buffer.get(bytes)
+      byteAccumulator.appendAll(bytes)
       buffer.clear()
     } else if (buffer.position() == buffer.limit()) {
       buffer.clear()
@@ -36,16 +33,23 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     if (byteRead == -1) {
       socketChannel.close()
       key.cancel()
-    }
-    else if (byteRead > 0) {
-      sb.append(getData)
-
-    }
-    if (byteRead != -1) {
+    } else if (byteRead > 0) {
+      buffer.flip()
+      val bytes = new Array[Byte](buffer.remaining())
+      buffer.get(bytes)
+      byteAccumulator.appendAll(bytes)
       buffer.clear()
     }
-    sb.mkString
+
+    if (byteAccumulator.nonEmpty) {
+      val result = byteAccumulator.toArray
+      byteAccumulator.clear()
+      result
+    } else {
+      Array.empty[Byte]
+    }
   }
+
 
   def process(data: String): Option[Command] = {
     val parserResult = process(data, parsingState)

@@ -7,11 +7,9 @@ import java.net.InetSocketAddress
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.nio.file.{Files, Paths}
 import scala.collection.concurrent.TrieMap
-import scala.collection.mutable
 
 class EventLoop(context: Context) {
   private var connections = TrieMap[SocketChannel, Connection]()
-  private val replicaChannels = mutable.ArrayBuffer[SocketChannel]()
 
   def start(): Unit = {
 
@@ -34,7 +32,7 @@ class EventLoop(context: Context) {
 
   }
 
-  private def mainEventLoop(selector: Selector, initialReplicationState : Option[ReplicationState]): Unit = {
+  private def mainEventLoop(selector: Selector, initialReplicationState: Option[ReplicationState]): Unit = {
     var replicationState = initialReplicationState
     while (true) {
       if (selector.select() > 0) {
@@ -124,29 +122,31 @@ class EventLoop(context: Context) {
     connections.get(client) match {
       case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
         println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
-        val data : String = connection.readData(key)
-        val event = connection.processResponse(data)
+        val data  = connection.readData(key)
+        println(s"READ DATA from socket ${data.toString}")
+        val dataStr = new String(data)
+        val event = connection.processResponse(dataStr)
 
         val (newState, action) = ProtocolManager.processEvent(replicationState.get, event.orNull)
         ProtocolManager.executeAction(action, newState.context)
-
-        //commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
         Some(newState)
 
       case Some(connection) =>
         println("****NORMAL CONNECTION FLOW****")
-        val data : String = connection.readData(key)
-        val commandOpt = connection.process(data)
+        val data = connection.readData(key)
+        if (data.nonEmpty) {
+          val dataStr = new String(data)
+          val commandOpt = connection.process(dataStr)
 
-        commandOpt match {
-          case Some(Psync) =>
-            commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
-            connection.write(Files.readAllBytes(Paths.get("empty.rdb")))
-          case _ => commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
+          commandOpt match {
+            case Some(Psync) =>
+              commandOpt.foreach { cmd => connection.write(cmd.execute(context)) }
+              connection.write(Files.readAllBytes(Paths.get("empty.rdb")))
+              context.replicaChannels :+= connection.socketChannel
+            case _ => commandOpt.foreach { cmd => connection.write(cmd.execute(context)) }
+          }
         }
-        //commandOpt.foreach { cmd => connection.write(cmd.execute(context))}
         replicationState
-        //connection.readDataFromClient(key, replicaChannels)
 
       case None =>
         println("No connection found")
@@ -154,10 +154,5 @@ class EventLoop(context: Context) {
         connections = connections.addOne(client, connection)
         replicationState
     }
-  }
-
-  private def handleHandshakeCompletion(connection: Connection): Unit = {
-    println("Handshake completed - transitioning to normal operation mode")
-    // Reset the connection's state for normal operation
   }
 }
