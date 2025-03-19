@@ -9,6 +9,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
 import java.nio.file.{Files, Paths}
 import scala.annotation.tailrec
+import scala.collection.View.Empty
 import scala.collection.mutable
 
 case class Connection(socketChannel: SocketChannel, context: Context) {
@@ -51,29 +52,44 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
 
-  def process(data: String): Option[Command] = {
-    val parserResult = process(data, parsingState)
-    val nextState = parserResult match {
-      case Parsed(_, nextState) => nextState
-      case Continue(nextState) => nextState
-    }
-    parsingState = nextState
-    Command.parse(parserResult)
-  }
-
-  def processResponse(data: String): Option[Event] = {
-    val parserResult = process(data, parsingState)
-    val nextState = parserResult match {
-      case Parsed(_, nextState) => nextState
-      case Continue(nextState) => nextState
-    }
-    parsingState = nextState
-    Event.parse(parserResult)
-  }
-
-  def process(data: String, parserState: ParseState): ParserResult = {
+  def process(data: String): List[Command] = {
     lineParser.append(data)
 
+    @tailrec
+    def processUntilCommand(currentState: ParseState, events : List[Command] = List.empty) : List[Command] = {
+      process(currentState) match {
+        case Parsed(value, nextState) =>
+          val event = Command.parse(Parsed(value, nextState))
+          processUntilCommand(nextState, events ++ event.toList)
+        case Continue(nextState) =>
+          parsingState = nextState
+          events
+      }
+    }
+
+    processUntilCommand(parsingState)
+
+  }
+
+  def processResponse(data: String): List[Event] = {
+    lineParser.append(data)
+
+    @tailrec
+    def processUntilCommand(currentState: ParseState, events : List[Event] = List.empty) : List[Event] = {
+      process(currentState) match {
+        case Parsed(value, nextState) =>
+          val event = Event.parse(Parsed(value, nextState))
+          processUntilCommand(nextState, events ++ event.toList)
+        case Continue(nextState) =>
+          parsingState = nextState
+          events
+      }
+    }
+
+    processUntilCommand(parsingState)
+  }
+
+  def process(parserState: ParseState) : ParserResult = {
     @tailrec
     def processNextLine(currentState: ParseState): ParserResult = {
       lineParser.nextLine() match {
@@ -88,73 +104,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
         case None => Continue(currentState)
       }
     }
-
     processNextLine(parserState)
-  }
-
-
-
-  private def parseLine(line: String, parseState: ParseState, replicaChannels: mutable.ArrayBuffer[SocketChannel]): ParseState = {
-    ProtocolParser.parse(line, parseState) match {
-      case Parsed(value, nextState) =>
-        value.head match {
-          case "PSYNC"      =>  handlePSyncCommand(value, replicaChannels)
-          case "FULLRESYNC" =>  handleFullResync(value)
-        }
-        nextState
-      case Continue(nextState) => nextState
-    }
-  }
-
-
-  private def handleFullResync(value: Vector[String]): Unit = {
-    println("*****************")
-    println("FULL RESYNC")
-    println("******************")
-  }
-
-  private def handlePSyncCommand(value: Vector[String], replicaChannels: mutable.ArrayBuffer[SocketChannel]): Unit = {
-    val masterId = context.getMasterId
-    socketChannel.write(ByteBuffer.wrap(s"+FULLRESYNC $masterId ${context.getMasterReplOffset}\r\n".getBytes))
-
-    socketChannel.write(ByteBuffer.wrap("$88\r\n".getBytes))
-    val byesFile = Files.readAllBytes(Paths.get("empty.rdb"))
-    socketChannel.write(ByteBuffer.wrap(byesFile))
-
-    replicaChannels += socketChannel
-    println(s"New replica connected: ${socketChannel.socket().getInetAddress} ${socketChannel.socket().getPort}")
-  }
-
-
-  private def propagateToReplicas(value:  Vector[String], replicaChannels : mutable.ArrayBuffer[SocketChannel]) = {
-    println(s"PropagaToReplicas ${replicaChannels.length}")
-    val command = buildSetCommand(value)
-    val buffer = ByteBuffer.wrap(command.getBytes)
-
-    val failedChannels = mutable.ArrayBuffer[SocketChannel]()
-
-    for (ch <- replicaChannels) {
-      try {
-        ch.write(buffer)
-        buffer.rewind()
-      } catch {
-        case _: IOException =>
-          println(s"Failed to propagate to replica ${ch.socket().getInetAddress}")
-          try {
-            ch.close()
-          } catch {
-            case _ : IOException =>
-          }
-          failedChannels += ch
-      }
-    }
-    replicaChannels --= failedChannels
-  }
-
-
-  private def buildSetCommand(value: Vector[String]): String = {
-    val commandParts = value.map(part => s"$$${part.length}\r\n$part\r\n")
-    s"*${value.length}\r\n${commandParts.mkString}"
   }
 
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))

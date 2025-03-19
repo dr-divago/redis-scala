@@ -62,8 +62,8 @@ class EventLoop(context: Context) {
       if (isMasterChannel) {
         println("Connected to master")
         replicationState.map { state =>
-          val (newState, action) = ProtocolManager.processEvent(state, ConnectionEstablished)
-          ProtocolManager.executeAction(action, newState.context)
+          val (newState, actions) = ProtocolManager.processEvent(state, List(ConnectionEstablished))
+          ProtocolManager.executeAction(actions, newState.context)
           key.interestOps(SelectionKey.OP_READ)
           val connectionToMaster = Connection(newState.context.masterChannel.get, context)
           connections.addOne(newState.context.masterChannel.get, connectionToMaster)
@@ -92,8 +92,8 @@ class EventLoop(context: Context) {
 
     if (connected) {
       println("connected to server")
-      val (newState, action) = ProtocolManager.processEvent(initialState, ConnectionEstablished)
-      ProtocolManager.executeAction(action, newState.context)
+      val (newState, actions) = ProtocolManager.processEvent(initialState, List(ConnectionEstablished))
+      ProtocolManager.executeAction(actions, newState.context)
       masterChannel.register(selector, SelectionKey.OP_READ)
       val connectionToMaster = Connection(masterChannel, context)
       connections.addOne(masterChannel, connectionToMaster)
@@ -123,12 +123,13 @@ class EventLoop(context: Context) {
       case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
         println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
         val data  = connection.readData(key)
-        println(s"READ DATA from socket ${data.toString}")
+        println(s"READ DATA from socket ${data.length}")
         val dataStr = new String(data)
-        val event = connection.processResponse(dataStr)
+        val events = connection.processResponse(dataStr)
+        println(s"EVENTS RECEIVED $events")
 
-        val (newState, action) = ProtocolManager.processEvent(replicationState.get, event.orNull)
-        ProtocolManager.executeAction(action, newState.context)
+        val (newState, actions) = ProtocolManager.processEvent(replicationState.get, events)
+        ProtocolManager.executeAction(actions, newState.context)
         Some(newState)
 
       case Some(connection) =>
@@ -138,8 +139,8 @@ class EventLoop(context: Context) {
           val dataStr = new String(data)
           val commandOpt = connection.process(dataStr)
 
-          commandOpt match {
-            case Some(Psync) =>
+          commandOpt.head match {
+            case Psync =>
               commandOpt.foreach { cmd => connection.write(cmd.execute(context)) }
               connection.write(Files.readAllBytes(Paths.get("empty.rdb")))
               context.replicaChannels :+= connection.socketChannel
