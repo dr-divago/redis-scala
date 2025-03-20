@@ -1,16 +1,12 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.{Command, Event}
+import codecrafters_redis.command.{Command, Event, RdbDataReceived}
 import codecrafters_redis.config.Context
 import codecrafters_redis.protocol._
 
-import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
-import java.nio.file.{Files, Paths}
 import scala.annotation.tailrec
-import scala.collection.View.Empty
-import scala.collection.mutable
 
 case class Connection(socketChannel: SocketChannel, context: Context) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
@@ -18,6 +14,14 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   private var parsingState : ParseState = WaitingForCommand()
 
   private val byteAccumulator = new scala.collection.mutable.ArrayBuffer[Byte]()
+
+  private sealed trait ReplicationState
+  private case object WaitingForFullResync extends ReplicationState
+  private case object WaitingForDimension extends ReplicationState
+  private case class ProcessingRdbData(dim: Int, received: Int) extends ReplicationState
+  private case object HandshakeComplete extends ReplicationState
+
+  private var replicationState: ReplicationState = WaitingForFullResync
 
   def readData(key: SelectionKey): Array[Byte] = {
     if (buffer.position() > 0) {
@@ -72,21 +76,39 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
   def processResponse(data: String): List[Event] = {
-    lineParser.append(data)
+    replicationState match {
+      case ProcessingRdbData(dim, received) =>
+        val bytes = data.getBytes
+        val newReceived = received + bytes.length
 
-    @tailrec
-    def processUntilCommand(currentState: ParseState, events : List[Event] = List.empty) : List[Event] = {
-      process(currentState) match {
-        case Parsed(value, nextState) =>
-          val event = Event.parse(Parsed(value, nextState))
-          processUntilCommand(nextState, events ++ event.toList)
-        case Continue(nextState) =>
-          parsingState = nextState
-          events
-      }
+        if (newReceived >= dim) {
+          // Handshake complete
+          replicationState = HandshakeComplete
+          List(RdbDataReceived(bytes))
+        } else {
+          // Still collecting RDB data
+          replicationState = ProcessingRdbData(dim, newReceived)
+          List(RdbDataReceived(bytes))
+        }
+      case _ =>
+        lineParser.append(data)
+
+        @tailrec
+        def processUntilCommand(currentState: ParseState, events : List[Event] = List.empty) : List[Event] = {
+          process(currentState) match {
+            case Parsed(value, nextState) =>
+              val event = Event.parse(Parsed(value, nextState))
+              processUntilCommand(nextState, events ++ event.toList)
+            case Continue(nextState) =>
+              parsingState = nextState
+              events
+          }
+        }
+
+        processUntilCommand(parsingState)
+
     }
 
-    processUntilCommand(parsingState)
   }
 
   def process(parserState: ParseState) : ParserResult = {

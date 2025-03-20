@@ -24,4 +24,21 @@ class LineParser(private val buffer : StringBuilder = new StringBuilder()) {
   def append(str: String): StringBuilder= {
     buffer.append(str)
   }
+
+  def clear() : Unit = {
+    buffer.clear()
+    pos = 0
+  }
+
+  def remaining() : String = {
+    if (pos < buffer.length()) {
+      buffer.substring(pos)
+    } else {
+      ""
+    }
+  }
+
+  def dataAvailable() : Int = {
+    buffer.length() - pos
+  }
 }
