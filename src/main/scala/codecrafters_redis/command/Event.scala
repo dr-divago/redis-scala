@@ -28,24 +28,10 @@ object Event {
     case Vector("FULLRESYNC", _, _) => FullResync
   }
 
-  private val dimensionReplication : PartialFunction[Vector[String], Event] = {
-    case Vector(dim) if Try(dim.toInt).isSuccess =>
-      println(s"DIM $dim")
-      DimensionReplication(dim.toInt)
-  }
-
-  private val rdbFileParser : PartialFunction[Vector[String], Event] = {
-    case Vector(file) =>
-      println("RECEIVED RDB FILE WITH REDIS")
-      RdbDataReceived(file.getBytes)
-  }
-
   private val parsers: List[PartialFunction[Vector[String], Event]] = List(
     pongParser,
     okParser,
     fullResync,
-    dimensionReplication,
-    rdbFileParser
   )
 
   private val commandParser : PartialFunction[Vector[String], Event] = {

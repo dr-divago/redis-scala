@@ -21,10 +21,12 @@ class ReplicationHandler {
       case WaitingForRdbData(dim, received) =>
         processRdbData(data, dim, received)
     }
+    List.empty
   }
 
   private def processLines() : List[Event] = {
 
+    List.empty
   }
 
   private def processRdbData(data: Array[Byte], dim: Int, received: Int) = {

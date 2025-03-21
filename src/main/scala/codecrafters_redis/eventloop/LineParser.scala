@@ -8,7 +8,6 @@ class LineParser(private val buffer : StringBuilder = new StringBuilder()) {
       return None
     }
     val line = buffer.substring(pos, endOfLineIdx)
-    println(s"LINE $line")
     pos = endOfLineIdx + 2
     if (pos > buffer.length() / 2) {
       compactBuffer()
@@ -22,7 +21,10 @@ class LineParser(private val buffer : StringBuilder = new StringBuilder()) {
   }
 
   def append(str: String): StringBuilder= {
-    buffer.append(str)
+    val res = buffer.append(str)
+    val escaed = str.replace("\r", "\\r").replace("\n", "\\n")
+    println(raw"Added to buffer $escaed")
+    res
   }
 
   def clear() : Unit = {
@@ -40,5 +42,9 @@ class LineParser(private val buffer : StringBuilder = new StringBuilder()) {
 
   def dataAvailable() : Int = {
     buffer.length() - pos
+  }
+
+  def print() : Unit = {
+    println(buffer)
   }
 }

@@ -1,6 +1,6 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.{Command, Event, RdbDataReceived}
+import codecrafters_redis.command.{Command, DimensionReplication, Event, FullResync, RdbDataReceived}
 import codecrafters_redis.config.Context
 import codecrafters_redis.protocol._
 
@@ -76,40 +76,159 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
   def processResponse(data: String): List[Event] = {
-    replicationState match {
-      case ProcessingRdbData(dim, received) =>
-        val bytes = data.getBytes
-        val newReceived = received + bytes.length
+    // Reset the flag
+    var handshakeJustCompleted = false
+
+    // For binary RDB data processing
+    def processRdbData(dim: Int, received: Int, data: Array[Byte]): (List[Event], Int) = {
+      val dataLength = data.length
+      val bytesNeeded = dim - received
+
+      if (dataLength <= bytesNeeded) {
+        println("All this data is part of RDB")
+        val newReceived = received + dataLength
 
         if (newReceived >= dim) {
-          // Handshake complete
+          println("RDB file complete - handshake finished")
           replicationState = HandshakeComplete
-          List(RdbDataReceived(bytes))
+          handshakeJustCompleted = true
+          (List(RdbDataReceived(data)), 0) // No excess data
         } else {
-          // Still collecting RDB data
+          println(" Still need more RDB data")
           replicationState = ProcessingRdbData(dim, newReceived)
-          List(RdbDataReceived(bytes))
+          (List(RdbDataReceived(data)), 0) // No excess data
         }
-      case _ =>
-        lineParser.append(data)
+      } else {
+        println(" We have more data than needed for RDB - split it")
+        val rdbPortion = data.take(bytesNeeded)
+        val excessBytes = dataLength - bytesNeeded
 
-        @tailrec
-        def processUntilCommand(currentState: ParseState, events : List[Event] = List.empty) : List[Event] = {
-          process(currentState) match {
-            case Parsed(value, nextState) =>
-              val event = Event.parse(Parsed(value, nextState))
-              processUntilCommand(nextState, events ++ event.toList)
-            case Continue(nextState) =>
-              parsingState = nextState
-              events
-          }
+        println("Mark handshake complete")
+        replicationState = HandshakeComplete
+        handshakeJustCompleted = true
+
+        println(s"Add excess data to lineParser for continued parsing")
+        if (excessBytes > 0) {
+          val excessData = data.drop(bytesNeeded)
+          val newData = new String(excessData)
+          println(s"new line added ${newData}")
+          lineParser.append(new String(excessData))
         }
 
-        processUntilCommand(parsingState)
-
+        (List(RdbDataReceived(rdbPortion)), excessBytes)
+      }
     }
 
+    // Initial state handling
+    val initialEvents = replicationState match {
+      case ProcessingRdbData(dim, received) =>
+        // Handle binary data
+        val (events, excessBytes) = processRdbData(dim, received, data.getBytes)
+
+        println(s"$handshakeJustCompleted and ${excessBytes}")
+        if (handshakeJustCompleted && excessBytes > 0) {
+          // Process any excess data as normal commands
+          val remainingEvents = parseNormalCommands()
+          events ++ remainingEvents
+        } else {
+          events
+        }
+
+      case _ =>
+        // Append data for text protocol parsing
+        lineParser.append(data)
+        parseProtocolHandshake()
+    }
+
+    // If handshake just completed during RDB processing, we've already handled excess data
+    // If handshake just completed during protocol parsing, we need to parse any remaining data
+    if (handshakeJustCompleted && replicationState == HandshakeComplete && initialEvents.nonEmpty) {
+      initialEvents
+    } else {
+      initialEvents
+    }
   }
+
+  def def protocolHandshake() : Unit = {
+    replicationState match {
+      case
+    }
+  }
+
+  // Parse the handshake protocol (FULLRESYNC, dimension)
+  private def parseProtocolHandshake(): List[Event] = {
+    @tailrec
+    def parseLines(state: ParseState, acc: List[Event] = List.empty): List[Event] = {
+      lineParser.nextLine() match {
+        case Some(line) =>
+          // Parse the line
+          val result = ProtocolParser.parse(line, state)
+
+          // Handle the result based on type
+          result match {
+            case Parsed(value, nextState) =>
+              // Only extract event for Parsed results
+              val event = Event.parse(Parsed(value, nextState))
+
+              // Check for state transitions and decide whether to continue
+              event match {
+                case Some(FullResync) if replicationState == WaitingForFullResync =>
+                  replicationState = WaitingForDimension
+                  acc ++ event.toList
+
+                case Some(DimensionReplication(dim)) if replicationState == WaitingForDimension =>
+                  replicationState = ProcessingRdbData(dim, 0)
+                  acc ++ event.toList
+
+                case _ =>
+                  parseLines(nextState, acc ++ event.toList)
+              }
+
+            case Continue(nextState) =>
+              // For Continue results, just keep parsing with the next state
+              parseLines(nextState, acc)
+          }
+
+        case None =>
+          // No more lines to parse
+          acc
+      }
+    }
+
+    parseLines(parsingState)
+  }
+
+  // Parse normal commands (after handshake complete)
+  private def parseNormalCommands(): List[Event] = {
+    println("PARSE NORMAL COMMAND AFTER HANDSHAKE")
+    @tailrec
+    def parseLines(state: ParseState, acc: List[Event] = List.empty): List[Event] = {
+      lineParser.nextLine() match {
+        case Some(line) =>
+          println(s"Parse the line : ${line}")
+          val result = ProtocolParser.parse(line, state)
+
+          // Handle the result based on type
+          result match {
+            case Parsed(value, nextState) =>
+              // Extract event for Parsed results
+              val event = Event.parse(Parsed(value, nextState))
+              parseLines(nextState, acc ++ event.toList)
+
+            case Continue(nextState) =>
+              // For Continue results, just keep parsing with the next state
+              parseLines(nextState, acc)
+          }
+
+        case None =>
+          println("No more lines to parse")
+          acc
+      }
+    }
+
+    parseLines(parsingState)
+  }
+
 
   def process(parserState: ParseState) : ParserResult = {
     @tailrec
@@ -119,7 +238,9 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
           val result = ProtocolParser.parse(line, currentState)
 
           result match {
-            case parsed: Parsed => parsed
+            case parsed: Parsed =>
+              lineParser.print()
+              parsed
             case Continue(nextState) => processNextLine(nextState)
           }
 
@@ -130,6 +251,8 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
+
+  def isReplicationHandshakeComplete: Boolean = replicationState == HandshakeComplete
 }
 
 

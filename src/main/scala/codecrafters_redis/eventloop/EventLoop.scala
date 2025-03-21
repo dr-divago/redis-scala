@@ -123,21 +123,36 @@ class EventLoop(context: Context) {
       case Some(connection) if replicationState.exists(rs => rs.isMasterConnection(client) && !rs.isHandshakeDone) =>
         println(s"**** REPLICATION HANDSHAKE DONE = ${replicationState.get.isHandshakeDone}")
         val data  = connection.readData(key)
-        println(s"READ DATA from socket ${data.length}")
-        val dataStr = new String(data)
-        val events = connection.processResponse(dataStr)
-        println(s"EVENTS RECEIVED $events")
 
-        val (newState, actions) = ProtocolManager.processEvent(replicationState.get, events)
-        ProtocolManager.executeAction(actions, newState.context)
-        Some(newState)
+        if (data.nonEmpty) {
+          val dataStr = new String(data)
+          println(s"EVENT LOOP data received : ${dataStr}")
+          val events = connection.processResponse(dataStr)
+          println(s"EVENTS RECEIVED $events")
+          if (events.nonEmpty) {
+            val (newState, actions) = ProtocolManager.processEvent(replicationState.get, events)
+            ProtocolManager.executeAction(actions, newState.context)
 
+            if (connection.
+              isReplicationHandshakeComplete && !newState.isHandshakeDone) {
+              Some(ReplicationState(HandshakeComplete, newState.context))
+            } else {
+              Some(newState)
+            }
+          } else {
+            replicationState
+          }
+        } else {
+          replicationState
+        }
       case Some(connection) =>
         println("****NORMAL CONNECTION FLOW****")
         val data = connection.readData(key)
         if (data.nonEmpty) {
           val dataStr = new String(data)
           val commandOpt = connection.process(dataStr)
+
+          println(s"COMMAND : ${commandOpt}")
 
           commandOpt.head match {
             case Psync =>
