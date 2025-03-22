@@ -133,6 +133,12 @@ class EventLoop(context: Context) {
             val (newState, actions) = ProtocolManager.processEvent(replicationState.get, events)
             ProtocolManager.executeAction(actions, newState.context)
 
+            newState.state match {
+              case ParseRDBFile(Some(dim), 0) =>
+                //prendi tutti i dati disponibili nel buffer a lancia RdbDataReceived(data)
+
+            }
+
             if (connection.
               isReplicationHandshakeComplete && !newState.isHandshakeDone) {
               Some(ReplicationState(HandshakeComplete, newState.context))

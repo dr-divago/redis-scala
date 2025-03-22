@@ -15,13 +15,6 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
   private val byteAccumulator = new scala.collection.mutable.ArrayBuffer[Byte]()
 
-  private sealed trait ReplicationState
-  private case object WaitingForFullResync extends ReplicationState
-  private case object WaitingForDimension extends ReplicationState
-  private case class ProcessingRdbData(dim: Int, received: Int) extends ReplicationState
-  private case object HandshakeComplete extends ReplicationState
-
-  private var replicationState: ReplicationState = WaitingForFullResync
 
   def readData(key: SelectionKey): Array[Byte] = {
     if (buffer.position() > 0) {
@@ -76,84 +69,10 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   }
 
   def processResponse(data: String): List[Event] = {
-    // Reset the flag
-    var handshakeJustCompleted = false
-
-    // For binary RDB data processing
-    def processRdbData(dim: Int, received: Int, data: Array[Byte]): (List[Event], Int) = {
-      val dataLength = data.length
-      val bytesNeeded = dim - received
-
-      if (dataLength <= bytesNeeded) {
-        println("All this data is part of RDB")
-        val newReceived = received + dataLength
-
-        if (newReceived >= dim) {
-          println("RDB file complete - handshake finished")
-          replicationState = HandshakeComplete
-          handshakeJustCompleted = true
-          (List(RdbDataReceived(data)), 0) // No excess data
-        } else {
-          println(" Still need more RDB data")
-          replicationState = ProcessingRdbData(dim, newReceived)
-          (List(RdbDataReceived(data)), 0) // No excess data
-        }
-      } else {
-        println(" We have more data than needed for RDB - split it")
-        val rdbPortion = data.take(bytesNeeded)
-        val excessBytes = dataLength - bytesNeeded
-
-        println("Mark handshake complete")
-        replicationState = HandshakeComplete
-        handshakeJustCompleted = true
-
-        println(s"Add excess data to lineParser for continued parsing")
-        if (excessBytes > 0) {
-          val excessData = data.drop(bytesNeeded)
-          val newData = new String(excessData)
-          println(s"new line added ${newData}")
-          lineParser.append(new String(excessData))
-        }
-
-        (List(RdbDataReceived(rdbPortion)), excessBytes)
-      }
-    }
-
-    // Initial state handling
-    val initialEvents = replicationState match {
-      case ProcessingRdbData(dim, received) =>
-        // Handle binary data
-        val (events, excessBytes) = processRdbData(dim, received, data.getBytes)
-
-        println(s"$handshakeJustCompleted and ${excessBytes}")
-        if (handshakeJustCompleted && excessBytes > 0) {
-          // Process any excess data as normal commands
-          val remainingEvents = parseNormalCommands()
-          events ++ remainingEvents
-        } else {
-          events
-        }
-
-      case _ =>
-        // Append data for text protocol parsing
         lineParser.append(data)
         parseProtocolHandshake()
-    }
-
-    // If handshake just completed during RDB processing, we've already handled excess data
-    // If handshake just completed during protocol parsing, we need to parse any remaining data
-    if (handshakeJustCompleted && replicationState == HandshakeComplete && initialEvents.nonEmpty) {
-      initialEvents
-    } else {
-      initialEvents
-    }
   }
 
-  def def protocolHandshake() : Unit = {
-    replicationState match {
-      case
-    }
-  }
 
   // Parse the handshake protocol (FULLRESYNC, dimension)
   private def parseProtocolHandshake(): List[Event] = {
@@ -172,12 +91,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
               // Check for state transitions and decide whether to continue
               event match {
-                case Some(FullResync) if replicationState == WaitingForFullResync =>
-                  replicationState = WaitingForDimension
-                  acc ++ event.toList
-
-                case Some(DimensionReplication(dim)) if replicationState == WaitingForDimension =>
-                  replicationState = ProcessingRdbData(dim, 0)
+                case Some(DimensionReplication(_)) =>
                   acc ++ event.toList
 
                 case _ =>

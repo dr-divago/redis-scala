@@ -28,10 +28,17 @@ object Event {
     case Vector("FULLRESYNC", _, _) => FullResync
   }
 
+  private val dimensionReplication : PartialFunction[Vector[String], Event] = {
+    case Vector(dim) if Try(dim.toInt).isSuccess =>
+      println(s"DIM $dim")
+      DimensionReplication(dim.toInt)
+  }
+
   private val parsers: List[PartialFunction[Vector[String], Event]] = List(
     pongParser,
     okParser,
     fullResync,
+    dimensionReplication,
   )
 
   private val commandParser : PartialFunction[Vector[String], Event] = {
