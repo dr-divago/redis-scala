@@ -1,6 +1,6 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.{ConnectionEstablished, Psync}
+import codecrafters_redis.command.{ConnectionEstablished, Psync, RdbDataReceived}
 import codecrafters_redis.config.{Config, Context}
 
 import java.net.InetSocketAddress
@@ -133,14 +133,26 @@ class EventLoop(context: Context) {
             val (newState, actions) = ProtocolManager.processEvent(replicationState.get, events)
             ProtocolManager.executeAction(actions, newState.context)
 
-            newState.state match {
-              case ParseRDBFile(Some(dim), 0) =>
-                //prendi tutti i dati disponibili nel buffer a lancia RdbDataReceived(data)
+            val replState = newState.state match {
+              case ParseRDBFile(Some(_), 0) =>
+                val data = connection.getLastData()
+                val event = RdbDataReceived(data.getBytes)
 
+                val (updatedState, actions) = ProtocolManager.processEvent(newState, List(event))
+                ProtocolManager.executeAction(actions, updatedState.context)
+
+                if (updatedState.isHandshakeDone) {
+                  ReplicationState(HandshakeComplete, newState.context)
+                }
+                else
+                  updatedState
+
+              case _ =>
+                println("All other cases")
+                newState
             }
 
-            if (connection.
-              isReplicationHandshakeComplete && !newState.isHandshakeDone) {
+            if (replState.isHandshakeDone) {
               Some(ReplicationState(HandshakeComplete, newState.context))
             } else {
               Some(newState)

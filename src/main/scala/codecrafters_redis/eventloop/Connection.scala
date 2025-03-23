@@ -166,7 +166,9 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
 
-  def isReplicationHandshakeComplete: Boolean = replicationState == HandshakeComplete
+  def getLastData() = {
+    lineParser.remaining()
+  }
 }
 
 
