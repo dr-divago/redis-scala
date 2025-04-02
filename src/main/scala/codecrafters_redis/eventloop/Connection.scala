@@ -166,7 +166,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
 
-  def getLastData() = {
+  def getLastData(): String = {
     lineParser.remaining()
   }
 }

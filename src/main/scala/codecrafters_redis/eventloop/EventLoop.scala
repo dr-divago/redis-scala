@@ -126,7 +126,7 @@ class EventLoop(context: Context) {
 
         if (data.nonEmpty) {
           val dataStr = new String(data)
-          println(s"EVENT LOOP data received : ${dataStr}")
+          println(s"EVENT LOOP data received : $dataStr")
           val events = connection.processResponse(dataStr)
           println(s"EVENTS RECEIVED $events")
           if (events.nonEmpty) {
