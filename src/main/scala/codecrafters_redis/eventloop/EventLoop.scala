@@ -135,7 +135,7 @@ class EventLoop(context: Context) {
 
             val replState = newState.state match {
               case ParseRDBFile(Some(_), 0) =>
-                val data = connection.getLastData()
+                val data = connection.getLastData
                 val event = RdbDataReceived(data.getBytes)
 
                 val (updatedState, actions) = ProtocolManager.processEvent(newState, List(event))
@@ -170,7 +170,7 @@ class EventLoop(context: Context) {
           val dataStr = new String(data)
           val commandOpt = connection.process(dataStr)
 
-          println(s"COMMAND : ${commandOpt}")
+          println(s"COMMAND : $commandOpt")
 
           commandOpt.head match {
             case Psync =>

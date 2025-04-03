@@ -153,7 +153,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
           result match {
             case parsed: Parsed =>
-              lineParser.print()
+              println(s"Parsed $parsed")
               parsed
             case Continue(nextState) => processNextLine(nextState)
           }
@@ -166,7 +166,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
 
-  def getLastData(): String = {
+  def getLastData: String = {
     lineParser.remaining()
   }
 }

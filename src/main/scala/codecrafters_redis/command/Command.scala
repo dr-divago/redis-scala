@@ -24,6 +24,7 @@ case class Echo(message: String) extends Command {
 case class Set(key: String, value: String, expiry: Option[Int] = None) extends Command {
   override def execute(context: Context): Array[Byte] = {
     context.getDB.add(key, value, expiry.map(ExpiresIn(_)).getOrElse(NeverExpires()))
+    println(s"SET keys ${context.getDB.keys()}")
     propagateToReplicas(key, value, context.replicaChannels)
     "+OK\r\n".getBytes
   }
@@ -59,6 +60,8 @@ case class Set(key: String, value: String, expiry: Option[Int] = None) extends C
 
 case class Get(key: String) extends Command {
   override def execute(context: Context): Array[Byte] = {
+    println(s"Command GET $key")
+    println(s"KEYS: ${context.getDB.keys()}")
     context.getDB.get(key) match {
       case Some(value) => s"$$${value.length}\r\n$value\r\n".getBytes
       case None => "$-1\r\n".getBytes
