@@ -80,7 +80,7 @@ case class ParseRDBFile(dimension: Option[Int] = None, bytesReceived: Int = 0) e
 
             if (totalBytesReceived >= dim) {
               println("RDB file completely received, handshake complete")
-              (HandshakeComplete, NoAction)
+              (HandshakeComplete, SkipRdbFileAction(dim))
             } else {
               (ParseRDBFile(Some(dim), totalBytesReceived), NoAction)
             }
@@ -104,64 +104,58 @@ case object HandshakeComplete extends State {
 }
 
 sealed trait Action {
-  def execute(channel : SocketChannel) : Unit
+  def execute(connection: Connection) : Unit
 }
 case object NoAction extends Action {
-  override def execute(channel: SocketChannel): Unit = {
+  override def execute(connection: Connection): Unit = {
     println("No Action to execute")
   }
 }
 case object SendPingCommand extends Action {
-  override def execute(channel: SocketChannel): Unit = {
+  override def execute(connection: Connection): Unit = {
     println("Sending PING command to master")
     val pingCommand = "*1\r\n$4\r\nPING\r\n"
-    val buffer = ByteBuffer.wrap(pingCommand.getBytes)
-    channel.write(buffer)
+    connection.write(pingCommand.getBytes)
   }
 }
 
 case class SendReplConfListeningCommand(port : Int) extends Action {
-  override def execute(channel: SocketChannel): Unit = {
+  override def execute(connection: Connection): Unit = {
     println(s"Sending REPLCONF listening-port $port command")
     val portStr = port.toString
     val command = s"*3\r\n$$8\r\nREPLCONF\r\n$$14\r\nlistening-port\r\n$$${portStr.length}\r\n$portStr\r\n"
-    val buffer = ByteBuffer.wrap(command.getBytes)
-    channel.write(buffer)
+    connection.write(command.getBytes)
   }
 }
 
 case object SendReplConfCapa extends Action {
-  def execute(channel: SocketChannel): Unit = {
+  def execute(connection: Connection): Unit = {
     println("Sending REPLCONF capa command")
     val command = "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
-    val buffer = ByteBuffer.wrap(command.getBytes)
-    channel.write(buffer)
+    connection.write(command.getBytes)
   }
 }
 
 case object SendPsyncCommand extends Action {
-  override def execute(channel: SocketChannel): Unit = {
+  override def execute(connection: Connection): Unit = {
     val command = "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"
-    val buffer = ByteBuffer.wrap(command.getBytes)
-    channel.write(buffer)
+    connection.write(command.getBytes)
   }
 }
 
-case class ParseRDBFileCommand(response : String) extends Action {
-  override def execute(channel: SocketChannel): Unit = {
-
-  }
+case class SkipRdbFileAction(bytesToSkip : Int) extends Action {
+  override def execute(connection: Connection): Unit = connection.skipBytes(bytesToSkip)
 }
 
-case class ReplicationContext(port :Int, masterChannel: Option[SocketChannel] = None)
+case class ReplicationContext(port :Int, connection: Connection)
 case class ReplicationState(state: State, context : ReplicationContext) {
   def isHandshakeDone: Boolean = state == HandshakeComplete
-  def isMasterConnection(client: SocketChannel) : Boolean = context.masterChannel.contains(client)
+  def isMasterConnection(client: SocketChannel) : Boolean = context.connection.socketChannel.eq(client)
 }
 
 object ProtocolManager {
-  def apply(socketChannel: SocketChannel, port: Int): ReplicationState = {
-    ReplicationState(Connecting, ReplicationContext(port, Some(socketChannel)))
+  def apply(connection: Connection, port: Int): ReplicationState = {
+    ReplicationState(Connecting, ReplicationContext(port, connection))
   }
 
   def processEvent(currentState : ReplicationState, events : List[Event]): (ReplicationState, List[Action]) = {
@@ -178,10 +172,9 @@ object ProtocolManager {
   }
 
   def executeAction(actions: List[Action], context: ReplicationContext) : Unit = {
-    println(s"Executing ${actions.toString} with channel ${context.masterChannel.get}")
-    context.masterChannel.foreach{ channel => actions.foreach { action =>
-      println(s"Executing ${actions.toString} with channel ${context.masterChannel.get}")
-      action.execute(channel)}
-    }
+    println(s"Executing ${actions.toString} with channel ${context.connection}")
+    actions.foreach { action =>
+      println(s"Executing ${actions.toString} with channel ${context.connection}")
+      action.execute(context.connection)}
   }
 }

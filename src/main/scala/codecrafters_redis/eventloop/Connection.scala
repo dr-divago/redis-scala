@@ -149,6 +149,7 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
     def processNextLine(currentState: ParseState): ParserResult = {
       lineParser.nextLine() match {
         case Some(line) =>
+          println(s"line = ${line} going to parse")
           val result = ProtocolParser.parse(line, currentState)
 
           result match {
@@ -167,7 +168,13 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
 
   def getLastData: String = {
+    println(s"lineparser = ${lineParser}")
     lineParser.remaining()
+  }
+
+  def skipBytes(bytes: Int) : Unit = {
+    println(s"lineparser = ${lineParser}")
+    lineParser.skip(bytes)
   }
 }
 

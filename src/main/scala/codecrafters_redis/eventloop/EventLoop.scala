@@ -56,7 +56,7 @@ class EventLoop(context: Context) {
   private def connectClient(key: SelectionKey, replicationState: Option[ReplicationState]): Option[ReplicationState] = {
     val channel = key.channel().asInstanceOf[SocketChannel]
 
-    val isMasterChannel = replicationState.exists(_.context.masterChannel.contains(channel))
+    val isMasterChannel = replicationState.exists(_.context.connection.socketChannel.eq(channel))
 
     if (channel.finishConnect()) {
       if (isMasterChannel) {
@@ -65,8 +65,6 @@ class EventLoop(context: Context) {
           val (newState, actions) = ProtocolManager.processEvent(state, List(ConnectionEstablished))
           ProtocolManager.executeAction(actions, newState.context)
           key.interestOps(SelectionKey.OP_READ)
-          val connectionToMaster = Connection(newState.context.masterChannel.get, context)
-          connections.addOne(newState.context.masterChannel.get, connectionToMaster)
           newState
         }
       } else {
@@ -88,15 +86,17 @@ class EventLoop(context: Context) {
     println(s"Connecting to master with ip ${masterIpPort(0)} port ${masterIpPort(1).toInt}")
 
     val connected = masterChannel.connect(new InetSocketAddress(masterIpPort(0), masterIpPort(1).toInt))
-    val initialState = ProtocolManager(masterChannel, context.getPort)
+
+    val connectionToMaster = Connection(masterChannel, context)
+    connections.addOne(masterChannel, connectionToMaster)
+
+    val initialState = ProtocolManager(connectionToMaster, context.getPort)
 
     if (connected) {
       println("connected to server")
       val (newState, actions) = ProtocolManager.processEvent(initialState, List(ConnectionEstablished))
       ProtocolManager.executeAction(actions, newState.context)
       masterChannel.register(selector, SelectionKey.OP_READ)
-      val connectionToMaster = Connection(masterChannel, context)
-      connections.addOne(masterChannel, connectionToMaster)
       newState
     }
     else {
@@ -136,6 +136,7 @@ class EventLoop(context: Context) {
             val replState = newState.state match {
               case ParseRDBFile(Some(_), 0) =>
                 val data = connection.getLastData
+                println(s"Remaining ${data.replace("\r", "\\r").replace("\n", "\\n")} Size ${data.length}")
                 val event = RdbDataReceived(data.getBytes)
 
                 val (updatedState, actions) = ProtocolManager.processEvent(newState, List(event))
