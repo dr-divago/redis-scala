@@ -63,4 +63,8 @@ case class Context(config: Config,
   }
 
   var replicaChannels: mutable.Seq[SocketChannel] = mutable.ArrayBuffer[SocketChannel]()
+
+  def isReplica: Boolean = {
+    config.replicaof.nonEmpty
+  }
 }

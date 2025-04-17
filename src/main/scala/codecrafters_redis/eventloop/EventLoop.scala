@@ -40,7 +40,8 @@ class EventLoop(context: Context) {
         val iterator = keys.iterator()
         while (iterator.hasNext) {
           iterator.next() match {
-            case key if key.isAcceptable => acceptClient(key)
+            case key if key.isAcceptable =>
+              val newConnection = acceptClient(key)
             case key if key.isReadable =>
               replicationState = readData(key, replicationState)
               println(s"EVENT LOOP $replicationState")
@@ -106,14 +107,14 @@ class EventLoop(context: Context) {
     }
   }
 
-  private def acceptClient(key: SelectionKey): Unit = {
+  private def acceptClient(key: SelectionKey): Connection = {
     val serverChannel = key.channel().asInstanceOf[ServerSocketChannel]
     val client = serverChannel.accept()
     println(s"CONNECT IP : ${client.socket().getInetAddress} PORT: ${client.socket().getPort}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
-    val connection = Connection(client, context)
-    connections.addOne(client, connection)
+    Connection(client, context)
+    //connections.addOne(client, connection)
   }
 
   private def readData(key: SelectionKey, replicationState: Option[ReplicationState]): Option[ReplicationState] = {

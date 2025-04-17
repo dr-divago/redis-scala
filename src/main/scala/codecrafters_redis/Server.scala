@@ -10,7 +10,4 @@ object Server {
     val eventLoop = new EventLoop(Context(config))
     eventLoop.start()
   }
-
-
-
 }
