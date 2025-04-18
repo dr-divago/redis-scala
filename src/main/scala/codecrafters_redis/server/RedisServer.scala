@@ -4,7 +4,7 @@ import codecrafters_redis.config.{Config, Context}
 import codecrafters_redis.eventloop.{Connection, EventLoop, ReplicationState}
 
 import java.nio.ByteBuffer
-import java.nio.channels.{SelectionKey, SocketChannel}
+import java.nio.channels.{SelectionKey, ServerSocketChannel, SocketChannel}
 import scala.collection.concurrent.TrieMap
 
 sealed trait ServerMode
@@ -33,15 +33,24 @@ case class RedisServer(mode: ServerMode, eventLoop: EventLoop) {
 
   private def readData(key: SelectionKey): EventResult = ???
 
-  private def acceptClient(key: SelectionKey): EventResult = ???
+  private def acceptClient(key: SelectionKey): EventResult = {
+    val serverChannel = key.channel().asInstanceOf[ServerSocketChannel]
+    val client = serverChannel.accept()
+    println(s"CONNECT IP : ${client.socket().getInetAddress} PORT: ${client.socket().getPort}")
+    client.configureBlocking(false)
+    client.register(key.selector(), SelectionKey.OP_READ)
+    val conn = Connection(client)
+    ConnectionAccepted(conn)
+    //connections.addOne(client, connection)
+  }
 }
 
 object RedisServer {
   def apply(context: Context): RedisServer = {
     if (context.isReplica) {
 
-      new RedisServer(ReplicaMode())
     }
+    new RedisServer(MasterMode, new EventLoop(context))
 
   }
 }

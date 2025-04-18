@@ -1,14 +1,13 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.{Command, DimensionReplication, Event, FullResync, RdbDataReceived}
-import codecrafters_redis.config.Context
+import codecrafters_redis.command.{Command, DimensionReplication, Event}
 import codecrafters_redis.protocol._
 
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
 import scala.annotation.tailrec
 
-case class Connection(socketChannel: SocketChannel, context: Context) {
+case class Connection(socketChannel: SocketChannel) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
   private val lineParser: LineParser = new LineParser()
   private var parsingState : ParseState = WaitingForCommand()
@@ -181,8 +180,8 @@ case class Connection(socketChannel: SocketChannel, context: Context) {
 
 
 object Connection {
-  def apply(socketChannel: SocketChannel, initialState: ParseState = WaitingForCommand(), context: Context) : Connection = {
-    val connection = Connection(socketChannel, initialState, context)
+  def apply(socketChannel: SocketChannel, initialState: ParseState = WaitingForCommand()) : Connection = {
+    val connection = Connection(socketChannel, initialState)
     connection
   }
 }

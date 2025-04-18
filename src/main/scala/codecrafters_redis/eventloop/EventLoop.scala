@@ -88,7 +88,7 @@ class EventLoop(context: Context) {
 
     val connected = masterChannel.connect(new InetSocketAddress(masterIpPort(0), masterIpPort(1).toInt))
 
-    val connectionToMaster = Connection(masterChannel, context)
+    val connectionToMaster = Connection(masterChannel)
     connections.addOne(masterChannel, connectionToMaster)
 
     val initialState = ProtocolManager(connectionToMaster, context.getPort)
@@ -113,7 +113,7 @@ class EventLoop(context: Context) {
     println(s"CONNECT IP : ${client.socket().getInetAddress} PORT: ${client.socket().getPort}")
     client.configureBlocking(false)
     client.register(key.selector(), SelectionKey.OP_READ)
-    Connection(client, context)
+    Connection(client)
     //connections.addOne(client, connection)
   }
 
@@ -186,7 +186,7 @@ class EventLoop(context: Context) {
 
       case None =>
         println("No connection found")
-        val connection = Connection(client, context)
+        val connection = Connection(client)
         connections = connections.addOne(client, connection)
         replicationState
     }

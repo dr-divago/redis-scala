@@ -19,10 +19,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
     val selectionKey = mock[SelectionKey]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // Set up mock behavior - simulate 10 bytes being read
     when(socketChannel.read(any[ByteBuffer])).thenAnswer { invocation =>
@@ -43,10 +42,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
     val selectionKey = mock[SelectionKey]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // Set up mock behavior - simulate 0 bytes being read
     when(socketChannel.read(any[ByteBuffer])).thenReturn(0)
@@ -62,10 +60,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
   it should "process Redis commands correctly" in {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // Test with a simple PING command in Redis protocol format
     val commands = connection.process("*1\r\n$4\r\nPING\r\n")
@@ -78,10 +75,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
   it should "process protocol handshake correctly" in {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // Test with a FULLRESYNC command followed by a dimension
     val events = connection.processResponse("+FULLRESYNC 1234abcd 0\r\n")
@@ -94,10 +90,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
   it should "write data to socket channel" in {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
-    val context = mock[Context]
 
     // Create connection
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // Set up mock behavior
     val testData = "PONG\r\n".getBytes
@@ -115,10 +110,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
     val selectionKey = mock[SelectionKey]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // Set up mock behavior for first read
     when(socketChannel.read(any[ByteBuffer])).thenAnswer { invocation =>
@@ -165,10 +159,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
     val selectionKey = mock[SelectionKey]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // Create data larger than the 1024 buffer
     val largeData = "*1\r\n$1024\r\n" + "a" * 1024 + "\r\n"
@@ -210,10 +203,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
   it should "maintain parsing state between process calls" in {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // First part of a command
     val commands1 = connection.process("*3\r\n$3\r\n")
@@ -237,10 +229,9 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
   it should "parse multiple command in the buffer" in {
     // Mock dependencies
     val socketChannel = mock[SocketChannel]
-    val context = mock[Context]
 
     // Create connection with mocked dependencies
-    val connection = Connection(socketChannel, context)
+    val connection = Connection(socketChannel)
 
     // First part of a command
     val commands1 = connection.process("*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\n123\r\n*3\r\n$3\r\nSET\r\n$3\r\nbar\r\n$3\r\n456\r\n*3\r\n$3\r\nSET\r\n$3\r\nbaz\r\n$3\r\n789\r\n")
