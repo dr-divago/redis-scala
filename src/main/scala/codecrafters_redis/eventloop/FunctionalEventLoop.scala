@@ -1,7 +1,6 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.Event
-import codecrafters_redis.server.{AcceptEvent, ConnectEvent, EventProcessor, ReadEvent, SocketEvent, WriteEvent}
+import codecrafters_redis.server._
 
 import java.nio.channels.{SelectionKey, Selector}
 
@@ -14,7 +13,7 @@ class FunctionalEventLoop(selector: Selector, processor: EventProcessor) {
         while (iterator.hasNext) {
           val keys = iterator.next()
           val event = keyToEvent(keys)
-          val result = processor.process(event)
+          processor.process(event)
           iterator.remove()
         }
       }

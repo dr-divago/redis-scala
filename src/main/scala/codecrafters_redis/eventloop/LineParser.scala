@@ -4,7 +4,7 @@ class LineParser(private val buffer : StringBuilder = new StringBuilder()) {
   private var pos = 0
   def nextLine(): Option[String] = {
     val escaped = buffer.toString().replace("\r", "\\r").replace("\n", "\\n")
-    println(s"Buffer = ${escaped}")
+    println(s"Buffer = $escaped")
     val endOfLineIdx = buffer.indexOf("\r\n", pos)
     println(s"endofline idx = ${endOfLineIdx} pos = ${pos}")
     if (endOfLineIdx == -1) {

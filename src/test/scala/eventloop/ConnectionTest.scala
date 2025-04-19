@@ -1,7 +1,6 @@
 package eventloop
 
 import codecrafters_redis.command.{FullResync, Ping, Set}
-import codecrafters_redis.config.Context
 import codecrafters_redis.eventloop.Connection
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{verify, when}

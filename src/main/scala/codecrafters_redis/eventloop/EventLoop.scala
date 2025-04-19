@@ -8,7 +8,7 @@ import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketCha
 import java.nio.file.{Files, Paths}
 import scala.collection.concurrent.TrieMap
 
-class EventLoop(context: Context) {
+class EventLoop(val context: Context) {
   private var connections = TrieMap[SocketChannel, Connection]()
 
   def start(): Unit = {
@@ -55,7 +55,7 @@ class EventLoop(context: Context) {
   }
 
   private def connectClient(key: SelectionKey, replicationState: Option[ReplicationState]): Option[ReplicationState] = {
-    val channel = key.channel().asInstanceOf[SocketChannel]
+    val channel = Option(key.channel()).collect{ case c: SocketChannel => c}.getOrElse(throw new IllegalArgumentException("Channel not found"))
 
     val isMasterChannel = replicationState.exists(_.context.connection.socketChannel.eq(channel))
 

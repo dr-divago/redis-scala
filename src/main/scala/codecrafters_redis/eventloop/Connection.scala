@@ -12,39 +12,32 @@ case class Connection(socketChannel: SocketChannel) {
   private val lineParser: LineParser = new LineParser()
   private var parsingState : ParseState = WaitingForCommand()
 
-  private val byteAccumulator = new scala.collection.mutable.ArrayBuffer[Byte]()
-
-
   def readData(key: SelectionKey): Array[Byte] = {
-    if (buffer.position() > 0) {
-      buffer.flip()
-      val bytes = new Array[Byte](buffer.remaining())
-      buffer.get(bytes)
-      byteAccumulator.appendAll(bytes)
-      buffer.clear()
-    } else if (buffer.position() == buffer.limit()) {
-      buffer.clear()
+    if (buffer.position() != 0) {
+      buffer.compact()
     }
 
-    val byteRead = socketChannel.read(buffer)
-    if (byteRead == -1) {
-      socketChannel.close()
-      key.cancel()
-    } else if (byteRead > 0) {
-      buffer.flip()
-      val bytes = new Array[Byte](buffer.remaining())
-      buffer.get(bytes)
-      byteAccumulator.appendAll(bytes)
-      buffer.clear()
+    try {
+      val bytesRead = socketChannel.read(buffer)
+
+      if (bytesRead == -1) {
+        socketChannel.close()
+        key.cancel()
+        Array.empty[Byte]
+      } else if (bytesRead == 0) {
+        Array.empty[Byte]
+      } else {
+        buffer.flip()
+        val bytes = new Array[Byte](buffer.remaining())
+        buffer.get(bytes)
+        bytes
+      }
+    } catch {
+      case e: Exception =>
+        println(s"Error reading data from socket ${e.getMessage}")
+        Array.empty[Byte]
     }
 
-    if (byteAccumulator.nonEmpty) {
-      val result = byteAccumulator.toArray
-      byteAccumulator.clear()
-      result
-    } else {
-      Array.empty[Byte]
-    }
   }
 
 

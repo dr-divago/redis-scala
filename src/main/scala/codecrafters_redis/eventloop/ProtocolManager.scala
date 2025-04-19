@@ -1,8 +1,7 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.{ConnectionClosed, ConnectionEstablished, DimensionReplication, Event, FullResync, OkEvent, PongEvent, RdbDataReceived}
+import codecrafters_redis.command._
 
-import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
 
 sealed trait State {
