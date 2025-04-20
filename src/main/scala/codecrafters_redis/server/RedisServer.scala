@@ -1,25 +1,67 @@
 package codecrafters_redis.server
 
-import codecrafters_redis.command.{Psync, RdbDataReceived}
-import codecrafters_redis.config.Context
-import codecrafters_redis.eventloop.{Connection, EventLoop, ParseRDBFile, ReplicationState}
+import codecrafters_redis.command.{ConnectionEstablished, Psync, RdbDataReceived}
+import codecrafters_redis.config.{Config, Context}
+import codecrafters_redis.eventloop.{Connection, EventLoop, ParseRDBFile, ProtocolManager, ReplicationState}
 
-import java.nio.channels.{SelectionKey, ServerSocketChannel, SocketChannel}
+import java.net.InetSocketAddress
+import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.nio.file.{Files, Paths}
 import scala.collection.concurrent.TrieMap
 
-sealed trait ServerMode
-case object MasterMode extends ServerMode
+case class ServerContext(connections: TrieMap[SocketChannel, Connection])
+
+trait RedisServerBehaviour {
+
+}
+sealed trait ServerMode {
+  def behaviour : RedisServerBehaviour
+}
+case object MasterMode extends ServerMode {
+  override def behaviour: RedisServerBehaviour = new RedisServerBehaviour {
+
+  }
+}
 case class ReplicaMode(replicationState: ReplicationState) extends ServerMode {
+  override def behaviour: RedisServerBehaviour = new RedisServerBehaviour {
+    def setupReplication(config: Config, selector: Selector): ReplicationState = {
+      val masterIpPort = config.replicaof.split(" ")
+      val masterChannel = SocketChannel.open()
+      masterChannel.configureBlocking(false)
 
 
+      println(s"Connecting to master with ip ${masterIpPort(0)} port ${masterIpPort(1).toInt}")
+
+      val connected = masterChannel.connect(new InetSocketAddress(masterIpPort(0), masterIpPort(1).toInt))
+
+      val connectionToMaster = Connection(masterChannel)
+      connections.addOne(masterChannel, connectionToMaster)
+
+      val initialState = ProtocolManager(connectionToMaster)
+
+      if (connected) {
+        println("connected to server")
+        val (newState, actions) = ProtocolManager.processEvent(initialState, List(ConnectionEstablished))
+        ProtocolManager.executeAction(actions, newState.context)
+        masterChannel.register(selector, SelectionKey.OP_READ)
+        newState
+      }
+      else {
+        println("Not connected yet")
+        masterChannel.register(selector, SelectionKey.OP_CONNECT)
+        initialState
+      }
+    }
+  }
 }
 
 
 case class RedisServer(mode: ServerMode, eventLoop: EventLoop) {
-  private val connections = TrieMap[SocketChannel, Connection]()
+  private val serverContext = ServerContext(
+    connections = TrieMap[SocketChannel, Connection]()
+  )
 
-  val eventProcessor = new EventProcessor {
+  val eventProcessor: EventProcessor = new EventProcessor {
     override def processEvent(event: SocketEvent): EventResult = event match {
       case AcceptEvent(key) => acceptClient(key)
       case ReadEvent(key) => readData(key)
@@ -36,7 +78,7 @@ case class RedisServer(mode: ServerMode, eventLoop: EventLoop) {
           processReceivedData(connection, data)
         case ConnectionClosed(channel) =>
           connections.remove(channel)
-        case NoDataReceived(channel) =>
+        case NoDataReceived(_) =>
           println("No data")
       }
     }
@@ -93,10 +135,30 @@ case class RedisServer(mode: ServerMode, eventLoop: EventLoop) {
 
 object RedisServer {
   def apply(context: Context): RedisServer = {
-    if (context.isReplica) {
 
+    val serverContext = ServerContext(
+      connections = TrieMap[SocketChannel, Connection]()
+    )
+
+    val selector = Selector.open()
+    val serverSocket = ServerSocketChannel.open()
+    serverSocket.configureBlocking(false)
+    serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
+    serverSocket.register(selector, SelectionKey.OP_ACCEPT)
+
+    val initMode = if (context.isReplica) {
+      val replicationState = createReplicationState(
+        context.config,
+        selector,
+        serverContext
+      )
+      ReplicaMode(replicationState)
     }
-    new RedisServer(MasterMode, new EventLoop(context))
-
+    else {
+      MasterMode
+    }
+    new RedisServer(initMode, new EventLoop(context))
   }
+
+  private def createReplicationState(config: Config, selector: Selector, serverContext: ServerContext) = ???
 }
