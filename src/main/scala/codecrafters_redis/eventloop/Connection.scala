@@ -6,6 +6,7 @@ import codecrafters_redis.protocol._
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
 import scala.annotation.tailrec
+import scala.util.Try
 
 case class Connection(socketChannel: SocketChannel) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
@@ -39,6 +40,26 @@ case class Connection(socketChannel: SocketChannel) {
     }
 
   }
+
+  def readIntoBuffer() : Try[Int] = {
+    buffer.compact()
+    Try(socketChannel.read(buffer))
+  }
+
+  def extractBytesFromBuffer(): Option[Array[Byte]] = {
+    buffer.flip()
+    if (buffer.remaining() > 0) {
+      val bytes = new Array[Byte](buffer.remaining())
+      buffer.get(bytes)
+      buffer.compact()
+      Some(bytes)
+    } else {
+      buffer.compact()
+      None
+    }
+  }
+
+  def finishConnectOnChannel(): Try[Boolean] = Try(socketChannel.finishConnect())
 
 
   def process(data: String): List[Command] = {
