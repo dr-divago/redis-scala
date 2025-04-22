@@ -1,50 +1,77 @@
 package codecrafters_redis.server
 
-import codecrafters_redis.command.ConnectionEstablished
+import codecrafters_redis.command.{ConnectionEstablished, Psync}
 import codecrafters_redis.config.{Config, Context}
-import codecrafters_redis.eventloop.{Connection, FunctionalEventLoop, ProtocolManager, ReplicationState}
-import codecrafters_redis.server.processor.{EventLoop, EventSource, RedisEventProcessor, RedisResultHandler}
+import codecrafters_redis.eventloop.{Connection, EventLoop, EventSource, NIOEventSource, ProtocolManager, ReplicationState}
+import codecrafters_redis.server.processor.{EventProcessor, ResultHandler}
 
 import java.net.InetSocketAddress
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
+import java.nio.file.{Files, Paths}
 import scala.collection.concurrent.TrieMap
 import scala.util.Success
 
 case class ServerContext(connections: TrieMap[SocketChannel, Connection])
 
 trait ServerOperations {
-  def handleNewClient(clientChannel: SocketChannel): EventResult
+  def handleNewClient(clientChannel: SocketChannel, key: SelectionKey): EventResult
   def handleConnectionReadable(connection: Connection): EventResult
   def handleConnectionEstablished(connection: Connection): EventResult
-  def processData(connection: Connection, data: Array[Byte]): EventResult
-  def handleConnectionClosed(connection: Connection): EventResult
-  def getConnections: TrieMap[SocketChannel, Connection]
 }
 
-trait RedisServerBehaviour {
-
-}
 sealed trait ServerMode {
-  def behaviour : RedisServerBehaviour
+  def resultHandler: ResultHandler
 }
-case object MasterMode extends ServerMode {
-  override def behaviour: RedisServerBehaviour = new RedisServerBehaviour {
+case class MasterMode(context: Context) extends ServerMode {
+  override def resultHandler: ResultHandler = new MasterResultHandler(context)
+}
 
-  }
-}
 case class ReplicaMode(replicationState: ReplicationState) extends ServerMode {
-  override def behaviour: RedisServerBehaviour = new RedisServerBehaviour {
+  override def resultHandler: ResultHandler = new ReplicaResultHandler(replicationState)
+}
 
+class MasterResultHandler(context: Context) extends ResultHandler {
+  override def handle(result: EventResult): Unit = {
+    result match {
+      case DataReceived(connection, data) =>
+        println(s"Received data on master: $data")
+        val dataStr = new String(data)
+        val commandOpt = connection.process(dataStr)
+
+        println(s"COMMAND : $commandOpt")
+
+        commandOpt.head match {
+          case Psync =>
+            commandOpt.foreach { cmd => connection.write(cmd.execute(context)) }
+            connection.write(Files.readAllBytes(Paths.get("empty.rdb")))
+            context.replicaChannels :+= connection.socketChannel
+          case _ => commandOpt.foreach { cmd => connection.write(cmd.execute(context)) }
+        }
+      case NoDataReceived(connection) => println(s"No data for $connection")
+      case ConnectionClosed(connection) =>
+        connection.close()
+        println(s"Connection closed for $connection")
+      case ConnectionAccepted(connection) => println(s"Connection accepted for $connection")
+    }
   }
 }
 
+class ReplicaResultHandler(replicationState: ReplicationState) extends ResultHandler {
+  override def handle(result: EventResult): Unit = {
+    result match {
+      case DataReceived(connection, data) => println(s"Received data on replica: $data")
+      case _ =>
+    }
+  }
+}
 
-
-
-case class RedisServer(var mode: ServerMode, eventSource: EventSource) extends ServerOperations {
+case class RedisServer(context: Context, var mode: ServerMode, eventSource: EventSource) extends ServerOperations {
   private val serverContext = ServerContext(connections = TrieMap[SocketChannel, Connection]())
   private val processor = new RedisEventProcessor()
-  private val handler = new RedisResultHandler()
+  private val handler = mode match {
+    case MasterMode(context) => new MasterResultHandler(context)
+    case ReplicaMode(state) => new ReplicaResultHandler(state)
+  }
 
   private val eventLoop: EventLoop = eventSource.subscribe(processor, handler)
 
@@ -52,10 +79,8 @@ case class RedisServer(var mode: ServerMode, eventSource: EventSource) extends S
     eventLoop.start()
   }
 
-  override def getConnections: TrieMap[SocketChannel, Connection] = serverContext.connections
-
-  override def handleNewClient(clientChannel: SocketChannel): EventResult = {
-    val connection = Connection(clientChannel)
+  override def handleNewClient(clientChannel: SocketChannel, key: SelectionKey): EventResult = {
+    val connection = Connection(clientChannel, key)
     serverContext.connections.put(clientChannel, connection)
     ConnectionAccepted(connection)
   }
@@ -89,61 +114,35 @@ case class RedisServer(var mode: ServerMode, eventSource: EventSource) extends S
     }
   }
 
-  override def processData(connection: Connection, data: Array[Byte]): EventResult =
-    mode match {
-      case MasterMode => Completed
-      case ReplicaMode(state) => Completed
-    }
 
-  override def handleConnectionClosed(connection: Connection): EventResult =
-    mode match {
-      case ReplicaMode(state) if state.context.connection.socketChannel.eq(connection.socketChannel) =>
-        mode = MasterMode
-        ConnectionAccepted(connection)
-      case _ => ConnectionClosed(connection)
-    }
-
-  lazy val eventProcessor  : EventProcessor = {
-    new EventProcessor {
-      override def processEvent(event: SocketEvent): EventResult = event match {
-        case AcceptEvent(key) =>
-          val serverChannel = key.channel().asInstanceOf[ServerSocketChannel]
-          val clientChannel = serverChannel.accept()
-          if (clientChannel != null) {
-            clientChannel.configureBlocking(false)
-            clientChannel.register(key.selector(), SelectionKey.OP_READ)
-            handleNewClient(clientChannel)
-          } else {
-            println("No client channel")
-            Completed
-          }
-        case ReadEvent(key) =>
-          val connection = getConnections.get(key.channel().asInstanceOf[SocketChannel])
-          if (connection.isDefined) {
-            handleConnectionReadable(connection.get)
-          } else {
-            println("No connection found")
-            Completed
-          }
-        case ConnectEvent(key) =>
-          val connection = getConnections.get(key.channel().asInstanceOf[SocketChannel])
-          if (connection.isDefined) {
-            handleConnectionEstablished(connection.get)
-          } else {
-            Completed
-          }
-      }
-
-
-
-      override def handleResult(result: EventResult): Unit = {
-        result match {
-          case ConnectionAccepted(connection) => getConnections.addOne(connection.socketChannel, connection)
-          case DataReceived(connection, data) => println("Process data")
-          case ConnectionClosed(channel) => println("Connection closed")
-          case NoDataReceived(_) => println("No data")
+  private class RedisEventProcessor extends EventProcessor {
+    def process(event: SocketEvent): EventResult = event match {
+      case AcceptEvent(key) =>
+        val serverChannel = key.channel().asInstanceOf[ServerSocketChannel]
+        val clientChannel = serverChannel.accept()
+        if (clientChannel != null) {
+          clientChannel.configureBlocking(false)
+          clientChannel.register(key.selector(), SelectionKey.OP_READ)
+          handleNewClient(clientChannel, key)
+        } else {
+          println("No client channel")
+          Completed
         }
-      }
+      case ReadEvent(key) =>
+        val connection = serverContext.connections.get(key.channel().asInstanceOf[SocketChannel])
+        if (connection.isDefined) {
+          handleConnectionReadable(connection.get)
+        } else {
+          println("No connection found")
+          Completed
+        }
+      case ConnectEvent(key) =>
+        val connection = serverContext.connections.get(key.channel().asInstanceOf[SocketChannel])
+        if (connection.isDefined) {
+          handleConnectionEstablished(connection.get)
+        } else {
+          Completed
+        }
     }
   }
 }
@@ -159,7 +158,8 @@ object RedisServer {
     serverSocket.bind(new InetSocketAddress("localhost", context.getPort))
     serverSocket.register(selector, SelectionKey.OP_ACCEPT)
 
-    val initMode = if (context.isReplica) {
+    val eventSource = NIOEventSource(selector)
+    val initMode: ServerMode = if (context.isReplica) {
       val replicationState = createReplicationState(
         context.config,
         selector,
@@ -168,9 +168,9 @@ object RedisServer {
       ReplicaMode(replicationState)
     }
     else {
-      MasterMode
+      MasterMode(context)
     }
-    new RedisServer(initMode, new FunctionalEventLoop(selector, eventProcessor))
+    new RedisServer(context, initMode, eventSource)
   }
 
   private def createReplicationState(config: Config, selector: Selector, serverContext: ServerContext) = {
@@ -182,7 +182,16 @@ object RedisServer {
 
     val connected = masterChannel.connect(new InetSocketAddress(masterIpPort(0), masterIpPort(1).toInt))
 
-    val connectionToMaster = Connection(masterChannel)
+    val key = if (connected) {
+      println("connected to server immediately")
+      masterChannel.register(selector, SelectionKey.OP_READ)
+    } else {
+      println("Not connected yet, registering for OP_CONNECT")
+      masterChannel.register(selector, SelectionKey.OP_CONNECT)
+    }
+
+
+    val connectionToMaster = Connection(masterChannel,key)
     serverContext.connections.addOne(masterChannel, connectionToMaster)
 
     val initialState = ProtocolManager(connectionToMaster)
@@ -191,12 +200,10 @@ object RedisServer {
       println("connected to server")
       val (newState, actions) = ProtocolManager.processEvent(initialState, List(ConnectionEstablished))
       ProtocolManager.executeAction(actions, newState.context)
-      masterChannel.register(selector, SelectionKey.OP_READ)
       newState
     }
     else {
       println("Not connected yet")
-      masterChannel.register(selector, SelectionKey.OP_CONNECT)
       initialState
     }
   }

@@ -1,14 +1,8 @@
 package codecrafters_redis.server.processor
 
-import codecrafters_redis.server.EventResult
+import codecrafters_redis.server.{DataReceived, EventResult}
 
 trait ResultHandler {
   def handle(result: EventResult): Unit
-}
-
-class RedisResultHandler extends ResultHandler {
-  def handle(result: EventResult): Unit = {
-    // Handle the result directly (store in Redis, etc.)
-  }
 }
 

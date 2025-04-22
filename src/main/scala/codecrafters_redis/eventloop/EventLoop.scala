@@ -7,7 +7,7 @@ import java.net.InetSocketAddress
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 import java.nio.file.{Files, Paths}
 import scala.collection.concurrent.TrieMap
-
+/*
 class EventLoop(val context: Context) {
   private var connections = TrieMap[SocketChannel, Connection]()
 
@@ -192,3 +192,5 @@ class EventLoop(val context: Context) {
     }
   }
 }
+
+ */

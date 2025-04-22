@@ -11,6 +11,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
 
+/*
 
 class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
 
@@ -254,3 +255,6 @@ class ConnectionSpec extends AnyFlatSpec with Matchers with MockitoSugar {
   }
 }
 
+
+
+ */

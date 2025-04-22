@@ -8,38 +8,10 @@ import java.nio.channels.{SelectionKey, SocketChannel}
 import scala.annotation.tailrec
 import scala.util.Try
 
-case class Connection(socketChannel: SocketChannel) {
+case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
   private val lineParser: LineParser = new LineParser()
   private var parsingState : ParseState = WaitingForCommand()
-
-  def readData(key: SelectionKey): Array[Byte] = {
-    if (buffer.position() != 0) {
-      buffer.compact()
-    }
-
-    try {
-      val bytesRead = socketChannel.read(buffer)
-
-      if (bytesRead == -1) {
-        socketChannel.close()
-        key.cancel()
-        Array.empty[Byte]
-      } else if (bytesRead == 0) {
-        Array.empty[Byte]
-      } else {
-        buffer.flip()
-        val bytes = new Array[Byte](buffer.remaining())
-        buffer.get(bytes)
-        bytes
-      }
-    } catch {
-      case e: Exception =>
-        println(s"Error reading data from socket ${e.getMessage}")
-        Array.empty[Byte]
-    }
-
-  }
 
   def readIntoBuffer() : Try[Int] = {
     buffer.compact()
@@ -125,6 +97,12 @@ case class Connection(socketChannel: SocketChannel) {
     parseLines(parsingState)
   }
 
+  def close(): Unit = {
+    println("Closing connection")
+    socketChannel.close()
+    key.cancel()
+  }
+
   // Parse normal commands (after handshake complete)
   private def parseNormalCommands(): List[Event] = {
     println("PARSE NORMAL COMMAND AFTER HANDSHAKE")
@@ -194,8 +172,8 @@ case class Connection(socketChannel: SocketChannel) {
 
 
 object Connection {
-  def apply(socketChannel: SocketChannel, initialState: ParseState = WaitingForCommand()) : Connection = {
-    val connection = Connection(socketChannel, initialState)
+  def apply(socketChannel: SocketChannel, initialState: ParseState = WaitingForCommand(), key: SelectionKey) : Connection = {
+    val connection = Connection(socketChannel, initialState, key)
     connection
   }
 }
