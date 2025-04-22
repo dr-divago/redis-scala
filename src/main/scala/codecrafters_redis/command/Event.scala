@@ -54,5 +54,4 @@ object Event {
   private def fromArgs(args: Vector[String]): Option[Event]= {
     if (commandParser.isDefinedAt(args)) Some(commandParser(args)) else None
   }
-
 }
