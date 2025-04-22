@@ -72,8 +72,7 @@ class ReplicaResultHandler(context: Context, replicationState: ReplicationState)
   }
 }
 
-case class RedisServer(context: Context, var mode: ServerMode, eventSource: EventSource) extends ServerOperations {
-  private val serverContext = ServerContext(connections = TrieMap[SocketChannel, Connection]())
+case class RedisServer(context: Context, var mode: ServerMode, eventSource: EventSource, serverContext: ServerContext) extends ServerOperations {
   private val processor = new RedisEventProcessor()
   private val handler = mode match {
     case MasterMode(context) => new MasterResultHandler(context)
@@ -88,7 +87,7 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
 
   override def handleNewClient(clientChannel: SocketChannel, key: SelectionKey): EventResult = {
     val connection = Connection(clientChannel, key)
-    serverContext.connections.put(clientChannel, connection)
+    serverContext.connections.addOne(clientChannel, connection)
     ConnectionAccepted(connection)
   }
 
@@ -106,8 +105,10 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
   }
 
   override def handleConnectionEstablished(connection: Connection): EventResult = {
+    println(s"Connection established for ${connection.socketChannel}")
     connection.finishConnectOnChannel() match {
       case Success(true) =>
+        println("Connected to server")
         mode match {
           case ReplicaMode(context, state) if state.context.connection.socketChannel.eq(connection.socketChannel) =>
             val (newState, actions) = ProtocolManager.processEvent(state, List(ConnectionEstablished))
@@ -116,8 +117,12 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
           case _ => println("Not a replica")
         }
         ConnectionAccepted(connection)
-      case Success(false) => ConnectionClosed(connection)
-      case _ => ConnectionClosed(connection)
+      case Success(false) =>
+        println("Not connected yet")
+        ConnectionClosed(connection)
+      case _ =>
+        println("Not connected yet")
+        ConnectionClosed(connection)
     }
   }
 
@@ -129,8 +134,8 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
         val clientChannel = serverChannel.accept()
         if (clientChannel != null) {
           clientChannel.configureBlocking(false)
-          clientChannel.register(key.selector(), SelectionKey.OP_READ)
-          handleNewClient(clientChannel, key)
+          val newKey = clientChannel.register(key.selector(), SelectionKey.OP_READ)
+          handleNewClient(clientChannel, newKey)
         } else {
           println("No client channel")
           Completed
@@ -144,6 +149,7 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
           Completed
         }
       case ConnectEvent(key) =>
+        println(s"Connect event ${serverContext.connections}")
         val connection = serverContext.connections.get(key.channel().asInstanceOf[SocketChannel])
         if (connection.isDefined) {
           handleConnectionEstablished(connection.get)
@@ -177,7 +183,7 @@ object RedisServer {
     else {
       MasterMode(context)
     }
-    new RedisServer(context, initMode, eventSource)
+    new RedisServer(context, initMode, eventSource, serverContext)
   }
 
   private def createReplicationState(config: Config, selector: Selector, serverContext: ServerContext) = {
