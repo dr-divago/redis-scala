@@ -26,8 +26,8 @@ case class MasterMode(context: Context) extends ServerMode {
   override def resultHandler: ResultHandler = new MasterResultHandler(context)
 }
 
-case class ReplicaMode(replicationState: ReplicationState) extends ServerMode {
-  override def resultHandler: ResultHandler = new ReplicaResultHandler(replicationState)
+case class ReplicaMode(context: Context, replicationState: ReplicationState) extends ServerMode {
+  override def resultHandler: ResultHandler = new ReplicaResultHandler(context, replicationState)
 }
 
 class MasterResultHandler(context: Context) extends ResultHandler {
@@ -56,10 +56,17 @@ class MasterResultHandler(context: Context) extends ResultHandler {
   }
 }
 
-class ReplicaResultHandler(replicationState: ReplicationState) extends ResultHandler {
+class ReplicaResultHandler(context: Context, replicationState: ReplicationState) extends ResultHandler {
   override def handle(result: EventResult): Unit = {
     result match {
-      case DataReceived(connection, data) => println(s"Received data on replica: $data")
+      case DataReceived(connection, data) =>
+        println(s"Received data on replica: $data")
+        val dataStr = new String(data)
+        val commands = connection.process(dataStr)
+        println(s"Event on replica : $commands")
+        if (commands.nonEmpty) {
+          commands.foreach { cmd => connection.write(cmd.execute(context)) }
+        }
       case _ =>
     }
   }
@@ -70,7 +77,7 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
   private val processor = new RedisEventProcessor()
   private val handler = mode match {
     case MasterMode(context) => new MasterResultHandler(context)
-    case ReplicaMode(state) => new ReplicaResultHandler(state)
+    case ReplicaMode(context, state) => new ReplicaResultHandler(context, state)
   }
 
   private val eventLoop: EventLoop = eventSource.subscribe(processor, handler)
@@ -102,10 +109,10 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
     connection.finishConnectOnChannel() match {
       case Success(true) =>
         mode match {
-          case ReplicaMode(state) if state.context.connection.socketChannel.eq(connection.socketChannel) =>
+          case ReplicaMode(context, state) if state.context.connection.socketChannel.eq(connection.socketChannel) =>
             val (newState, actions) = ProtocolManager.processEvent(state, List(ConnectionEstablished))
             ProtocolManager.executeAction(actions, newState.context)
-            mode = ReplicaMode(newState)
+            mode = ReplicaMode(context, newState)
           case _ => println("Not a replica")
         }
         ConnectionAccepted(connection)
@@ -165,7 +172,7 @@ object RedisServer {
         selector,
         serverContext
       )
-      ReplicaMode(replicationState)
+      ReplicaMode(context, replicationState)
     }
     else {
       MasterMode(context)

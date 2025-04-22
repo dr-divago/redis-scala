@@ -67,14 +67,13 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
         case Some(line) =>
           // Parse the line
           val result = ProtocolParser.parse(line, state)
+          println(s"Parse line : ${line} result = $result")
 
-          // Handle the result based on type
           result match {
             case Parsed(value, nextState) =>
-              // Only extract event for Parsed results
               val event = Event.parse(Parsed(value, nextState))
+              println(s"Event : $event")
 
-              // Check for state transitions and decide whether to continue
               event match {
                 case Some(DimensionReplication(_)) =>
                   acc ++ event.toList
