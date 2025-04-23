@@ -1,7 +1,7 @@
 package codecrafters_redis.eventloop
 
 import codecrafters_redis.command.{Command, DimensionReplication, Event}
-import codecrafters_redis.protocol._
+import codecrafters_redis.protocol.{Continue, ParseState, Parsed, ParserResult, ProtocolParser, WaitingForCommand}
 
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
