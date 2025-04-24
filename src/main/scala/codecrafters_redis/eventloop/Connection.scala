@@ -1,55 +1,42 @@
 package codecrafters_redis.eventloop
 
 import codecrafters_redis.command.{Command, DimensionReplication, Event}
+import codecrafters_redis.protocol.resp.RespProtocolParser
 import codecrafters_redis.protocol.{Continue, ParseState, Parsed, ParserResult, ProtocolParser, WaitingForCommand}
 
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
 import scala.annotation.tailrec
+import scala.collection.mutable.ListBuffer
 import scala.util.Try
 
 case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
-  private val lineParser: LineParser = new LineParser()
-  private var parsingState : ParseState = WaitingForCommand()
 
   def readIntoBuffer() : Try[Int] = {
     buffer.compact()
     Try(socketChannel.read(buffer))
   }
 
-  def extractBytesFromBuffer(): Option[Array[Byte]] = {
-    buffer.flip()
-    if (buffer.remaining() > 0) {
-      val bytes = new Array[Byte](buffer.remaining())
-      buffer.get(bytes)
-      buffer.compact()
-      Some(bytes)
-    } else {
-      buffer.compact()
-      None
-    }
-  }
-
   def finishConnectOnChannel(): Try[Boolean] = Try(socketChannel.finishConnect())
 
 
   def process(data: String): List[Command] = {
-    lineParser.append(data)
+    buffer.flip()
 
-    @tailrec
-    def processUntilCommand(currentState: ParseState, events : List[Command] = List.empty) : List[Command] = {
-      process(currentState) match {
-        case Parsed(value, nextState) =>
-          val event = Command.parse(Parsed(value, nextState))
-          processUntilCommand(nextState, events ++ event.toList)
-        case Continue(nextState) =>
-          parsingState = nextState
-          events
+    val parsedCommands = ListBuffer[Command]()
+    val keepParsing = true
+    val parsedErrorOccurred = false
+
+    while (keepParsing && !parsedErrorOccurred && buffer.hasRemaining) {
+      val parserResult = RespProtocolParser.parse(buffer)
+
+      parserResult match {
+        case Parsed(value, consumedBytes) =>
+
       }
     }
 
-    processUntilCommand(parsingState)
 
   }
 

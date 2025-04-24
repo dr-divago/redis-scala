@@ -11,7 +11,7 @@ case class RespBulkString(value: Array[Byte]) extends RespValue
 case class RespError(value: String) extends RespValue
 case class RespNullBulkString() extends RespValue
 case class RespNullArray() extends RespValue
-case class RespArray(value: Int) extends RespValue
+case class RespArray(value: List[RespValue]) extends RespValue
 case class RespArrayHeader(value: Int) extends RespValue
 
 
