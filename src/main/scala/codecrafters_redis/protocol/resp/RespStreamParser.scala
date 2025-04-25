@@ -11,41 +11,71 @@ case class WaitingForNextElement(currentElements: List[RespValue], remaining : I
 
 object RespStreamParser {
   def parse(buffer: ByteBuffer, state: ParseState) : (ParserResult, ParseState)  = {
-    if (!buffer.hasRemaining) {
-      (Incomplete, state)
-    } else {
-      state match {
-        case WaitingForCommand =>
-          peekFirstChar(buffer) match {
-            case '*' =>
-              buffer.get()
+    state match {
+      case WaitingForNextElement(elements, 0, consumedBytes) => (Parsed(RespArray(elements), consumedBytes), WaitingForCommand)
+      case _ if !buffer.hasRemaining => (Incomplete, state)
+      case WaitingForCommand =>
+        peekFirstChar(buffer) match {
+          case '*' => parseRespArray(buffer, state)
+          case '+' => parseRespValue(buffer, state, s => RespString(s))
+          case ':' => parseRespValue(buffer, state, s => RespInteger(s.toLong))
+          case '-' => parseRespValue(buffer, state, s => RespError(s))
+        }
 
-              findCRLF(buffer) match {
-                case Some(pos) =>
-                  val numberOfElements = extractNumberOfElement(buffer, pos)
-                  buffer.position(buffer.position() + 2)
-                  val consumedBytes = numberOfElements.toString.length + 2 + 1
-                  val newState = WaitingForNextElement(List(), numberOfElements, consumedBytes)
-                  (Incomplete, newState)
-                case None =>
-                  buffer.position(buffer.position() - 1)
-                  (Incomplete, state)
-              }
-          }
-        case WaitingForNextElement(elements, remaining, consumedBytes) if remaining == 0 => (Parsed(RespArray(elements), consumedBytes), WaitingForCommand)
-
-      }
+      case WaitingForNextElement(elements, remaining, consumedBytes) =>
+        val (result, _) = parse(buffer, WaitingForCommand)
+        result match {
+          case Parsed(value, consumedBytes) =>
+            parse(buffer, WaitingForNextElement(elements :+ value, remaining - 1, consumedBytes))
+          case Incomplete => (Incomplete, WaitingForNextElement(elements, remaining, consumedBytes))
+          case Error(message) => (Error(message), WaitingForCommand)
+        }
     }
   }
 
-  private def extractNumberOfElement(buffer: ByteBuffer, pos: Int): Int = {
+  private def parseRespArray(buffer: ByteBuffer, state: ParseState) = {
+    buffer.get()
+
+    findCRLF(buffer) match {
+      case Some(pos) =>
+        val numberOfElements = extractElement(buffer, pos)
+        numberOfElements.toInt match {
+          case 0 => (Parsed(RespArray(List()), 2), WaitingForCommand)
+          case -1 => (Parsed(RespNullArray(), 2), WaitingForCommand)
+          case _ =>
+            buffer.position(buffer.position() + 2)
+            val consumedBytes = numberOfElements.length + 2 + 1
+            parse(buffer, WaitingForNextElement(List(), numberOfElements.toInt, consumedBytes))
+        }
+      case None =>
+        buffer.position(buffer.position() - 1)
+        (Incomplete, state)
+    }
+
+  }
+
+  private def parseRespValue(buffer: ByteBuffer, state: ParseState, value : String => RespValue) = {
+    buffer.get()
+    findCRLF(buffer) match {
+      case Some(pos) =>
+        val content = extractElement(buffer, pos)
+        buffer.position(pos + 2)
+        val consumedBytes = content.length + 2 + 1
+        (Parsed(value(content), consumedBytes), WaitingForCommand)
+      case None =>
+        buffer.position(buffer.position() - 1)
+        (Incomplete, state)
+    }
+  }
+
+  private def extractElement(buffer: ByteBuffer, pos: Int): String = {
     val countLength = pos - buffer.position()
     val countBytes = new Array[Byte](countLength)
     buffer.get(countBytes, 0, countLength)
-    new String(countBytes, "UTF-8").toInt
+    new String(countBytes, "UTF-8")
   }
 
-  def peekFirstChar(buffer: ByteBuffer) : Char = {
+  private def peekFirstChar(buffer: ByteBuffer) : Char = {
     buffer.get(buffer.position()).toChar
   }
 

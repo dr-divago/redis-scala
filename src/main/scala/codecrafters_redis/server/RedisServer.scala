@@ -92,6 +92,7 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
   }
 
   override def handleConnectionReadable(connection: Connection): EventResult = {
+    /*
     connection.readIntoBuffer() match {
       case Success(bytesRead) if bytesRead > 0 =>
           connection.extractBytesFromBuffer() match {
@@ -102,6 +103,10 @@ case class RedisServer(context: Context, var mode: ServerMode, eventSource: Even
       case Success(-1) => ConnectionClosed(connection)
       case _ => ConnectionClosed(connection)
     }
+
+
+     */
+    ConnectionAccepted(connection)
   }
 
   override def handleConnectionEstablished(connection: Connection): EventResult = {

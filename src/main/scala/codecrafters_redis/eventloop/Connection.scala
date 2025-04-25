@@ -22,6 +22,7 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
 
 
   def process(data: String): List[Command] = {
+    /*
     buffer.flip()
 
     val parsedCommands = ListBuffer[Command]()
@@ -38,16 +39,20 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
     }
 
 
+     */
+    List.empty[Command]
+
   }
 
   def processResponse(data: String): List[Event] = {
-        lineParser.append(data)
+        //lineParser.append(data)
         parseProtocolHandshake()
   }
 
 
   // Parse the handshake protocol (FULLRESYNC, dimension)
   private def parseProtocolHandshake(): List[Event] = {
+    /*
     @tailrec
     def parseLines(state: ParseState, acc: List[Event] = List.empty): List[Event] = {
       lineParser.nextLine() match {
@@ -81,6 +86,9 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
     }
 
     parseLines(parsingState)
+
+     */
+    List.empty[Event]
   }
 
   def close(): Unit = {
@@ -91,6 +99,7 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
 
   // Parse normal commands (after handshake complete)
   private def parseNormalCommands(): List[Event] = {
+    /*
     println("PARSE NORMAL COMMAND AFTER HANDSHAKE")
     @tailrec
     def parseLines(state: ParseState, acc: List[Event] = List.empty): List[Event] = {
@@ -118,10 +127,14 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
     }
 
     parseLines(parsingState)
+
+     */
+    List.empty[Event]
   }
 
 
   def process(parserState: ParseState) : ParserResult = {
+    /*
     @tailrec
     def processNextLine(currentState: ParseState): ParserResult = {
       lineParser.nextLine() match {
@@ -140,18 +153,23 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
       }
     }
     processNextLine(parserState)
+
+     */
+    Continue(parserState)
   }
 
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
 
   def getLastData: String = {
-    println(s"lineparser = ${lineParser}")
-    lineParser.remaining()
+    //println(s"lineparser = ${lineParser}")
+    //lineParser.remaining()
+    ""
   }
 
   def skipBytes(bytes: Int) : Unit = {
-    println(s"lineparser = ${lineParser}")
-    lineParser.skip(bytes)
+    //println(s"lineparser = ${lineParser}")
+    //lineParser.skip(bytes)
+    ""
   }
 }
 
