@@ -1,6 +1,5 @@
 package protocol
 
-import codecrafters_redis.protocol.WaitingForCommand
 import codecrafters_redis.protocol.resp.{Error, Incomplete, Parsed, ParserResult, RespArrayHeader, RespBulkString, RespError, RespInteger, RespNullArray, RespNullBulkString, RespProtocolParser, RespString}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.must.Matchers
@@ -31,7 +30,7 @@ class RespProtocolParserTests extends AnyFlatSpec with Matchers {
     val buffer = createBuffer(testSimpleString)
 
     val result = RespProtocolParser.parse(buffer)
-    result shouldBe Parsed(RespString("OK"), 2)
+    result shouldBe Parsed(RespString("OK"), 5)
   }
 
   it should "parse error" in {
@@ -39,7 +38,7 @@ class RespProtocolParserTests extends AnyFlatSpec with Matchers {
     val buffer = createBuffer(testError)
 
     val result = RespProtocolParser.parse(buffer)
-    result shouldBe Parsed(RespError("ERR"), 3)
+    result shouldBe Parsed(RespError("ERR"), 6)
   }
 
   it should "parse integer" in {
@@ -47,7 +46,7 @@ class RespProtocolParserTests extends AnyFlatSpec with Matchers {
     val buffer = createBuffer(testInteger)
 
     val result = RespProtocolParser.parse(buffer)
-    result shouldBe Parsed(RespInteger(123), 3)
+    result shouldBe Parsed(RespInteger(123), 6)
   }
 
   it should "parse array header" in {

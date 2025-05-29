@@ -1,12 +1,10 @@
 package codecrafters_redis.eventloop
 
-import codecrafters_redis.command.{Command, DimensionReplication, Event}
-import codecrafters_redis.protocol.resp.RespProtocolParser
-import codecrafters_redis.protocol.{Continue, ParseState, Parsed, ParserResult, ProtocolParser, WaitingForCommand}
+import codecrafters_redis.command.{Command, Event}
+import codecrafters_redis.protocol.resp.{Parsed, RespProtocolParser}
 
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
-import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
 import scala.util.Try
 
@@ -21,25 +19,33 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
   def finishConnectOnChannel(): Try[Boolean] = Try(socketChannel.finishConnect())
 
 
-  def process(data: String): List[Command] = {
-    /*
+  def extractBytesFromBuffer() : Option[Array[Byte]] = {
     buffer.flip()
+    if (buffer.hasRemaining) {
+      val bytes = new Array[Byte](buffer.remaining())
+      buffer.get(bytes)
+      Some(bytes)
+    }
+    else {
+      None
+    }
+  }
+  def process(data: String): List[Command] = {
 
     val parsedCommands = ListBuffer[Command]()
-    val keepParsing = true
-    val parsedErrorOccurred = false
 
-    while (keepParsing && !parsedErrorOccurred && buffer.hasRemaining) {
-      val parserResult = RespProtocolParser.parse(buffer)
+    val parserResult = RespProtocolParser.parse(buffer)
 
-      parserResult match {
-        case Parsed(value, consumedBytes) =>
+    parserResult match {
+      case Parsed(value, consumedBytes) => parsedCommands += value
+    }
+      //parserResult match {
+        //case Parsed(value, consumedBytes) =>
 
-      }
+      //}
     }
 
 
-     */
     List.empty[Command]
 
   }
@@ -157,6 +163,7 @@ case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
      */
     Continue(parserState)
   }
+
 
   def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
 
