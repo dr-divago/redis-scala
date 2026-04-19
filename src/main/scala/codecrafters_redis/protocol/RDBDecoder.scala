@@ -1,7 +1,5 @@
 package codecrafters_redis.protocol
 
-import org.scalactic.TimesOnInt.convertIntToRepeater
-
 import java.nio.{ByteBuffer, ByteOrder}
 import scala.collection.mutable.ListBuffer
 
@@ -37,7 +35,7 @@ object RDBDecoder {
     val res = ListBuffer.empty[(String, String, Option[Long])]
     if (sizeHTwithExpire > 0) {
       var idx = startHT+3
-      sizeHTwithExpire.times {
+      for (_ <- 0 until sizeHTwithExpire.toInt) {
         val result = fileByte(idx) & 0xFF match {
           case 0xfc => Some(readExpirationForMilliSec(fileByte.drop(idx+1)))
           case 0xfd => Some(readExpirationForSec(fileByte.drop(idx+1)))
@@ -51,7 +49,7 @@ object RDBDecoder {
     }
     if (sizeHT - sizeHTwithExpire > 0) {
       var idx = startHT+4
-      sizeHT.times {
+      for (_ <- 0 until sizeHT.toInt) {
         val (sizeKey, key) = Decoder.decodeString(fileByte.drop(idx))
         val (sizeValue, value) = Decoder.decodeString(fileByte.drop(idx+sizeKey+1))
         idx = idx + (sizeKey + 1) + (sizeValue + 1) + 1

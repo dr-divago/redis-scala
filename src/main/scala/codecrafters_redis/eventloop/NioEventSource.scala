@@ -1,5 +1,6 @@
 package codecrafters_redis.eventloop
 
+import codecrafters_redis.Logger
 import codecrafters_redis.eventloop.NIOEventSource.keyToEvent
 import codecrafters_redis.server._
 import codecrafters_redis.server.processor.{EventProcessor, ResultHandler}
@@ -27,15 +28,21 @@ class NIOEventSource(selector: Selector) extends EventSource{
                             ) extends EventLoop {
     def start(): Unit = {
       while (true) {
-        if (selector.select() > 0) {
+        if (selector.select(1000) > 0) {
           val keys = selector.selectedKeys()
           val iterator = keys.iterator()
           while (iterator.hasNext) {
-            val keys = iterator.next()
-            val event = keyToEvent(keys)
-            val result = processor.process(event)
-            handler.handle(result)
+            val key = iterator.next()
             iterator.remove()
+            try {
+              val event = keyToEvent(key)
+              val result = processor.process(event)
+              handler.handle(result)
+            } catch {
+              case e: Exception =>
+                val ch = try { key.channel() } catch { case _: Exception => null }
+                Logger.error(s"Error processing event on channel $ch: ${e.getMessage}", e)
+            }
           }
         }
       }

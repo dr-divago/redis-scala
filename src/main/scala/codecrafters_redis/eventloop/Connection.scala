@@ -1,191 +1,75 @@
 package codecrafters_redis.eventloop
 
+import codecrafters_redis.Logger
 import codecrafters_redis.command.{Command, Event}
-import codecrafters_redis.protocol.resp.{Parsed, RespProtocolParser}
+import codecrafters_redis.protocol.resp.{
+  Incomplete, ParseState, Parsed, RespArray, RespBulkString, RespStreamParser, WaitingForCommand,
+  Error => ParseError
+}
 
 import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, SocketChannel}
-import scala.collection.mutable.ListBuffer
+import java.nio.charset.StandardCharsets
+import scala.annotation.tailrec
 import scala.util.Try
 
 case class Connection(socketChannel: SocketChannel, key: SelectionKey) {
   private val buffer: ByteBuffer = ByteBuffer.allocate(1024)
+  private var leftover: Array[Byte] = Array.empty
 
-  def readIntoBuffer() : Try[Int] = {
+  def readIntoBuffer(): Try[Int] = {
     buffer.compact()
     Try(socketChannel.read(buffer))
   }
 
   def finishConnectOnChannel(): Try[Boolean] = Try(socketChannel.finishConnect())
 
-
-  def extractBytesFromBuffer() : Option[Array[Byte]] = {
+  def extractBytesFromBuffer(): Option[Array[Byte]] = {
     buffer.flip()
     if (buffer.hasRemaining) {
       val bytes = new Array[Byte](buffer.remaining())
       buffer.get(bytes)
       Some(bytes)
-    }
-    else {
+    } else {
       None
     }
   }
-  def process(data: String): List[Command] = {
 
-    val parsedCommands = ListBuffer[Command]()
+  def process(data: Array[Byte]): List[Command] = {
+    val combined = if (leftover.nonEmpty) leftover ++ data else data
+    leftover = Array.empty
+    val buf = ByteBuffer.wrap(combined)
 
-    val parserResult = RespProtocolParser.parse(buffer)
-
-    parserResult match {
-      case Parsed(value, consumedBytes) => parsedCommands += value
-    }
-      //parserResult match {
-        //case Parsed(value, consumedBytes) =>
-
-      //}
-    }
-
-
-    List.empty[Command]
-
-  }
-
-  def processResponse(data: String): List[Event] = {
-        //lineParser.append(data)
-        parseProtocolHandshake()
-  }
-
-
-  // Parse the handshake protocol (FULLRESYNC, dimension)
-  private def parseProtocolHandshake(): List[Event] = {
-    /*
     @tailrec
-    def parseLines(state: ParseState, acc: List[Event] = List.empty): List[Event] = {
-      lineParser.nextLine() match {
-        case Some(line) =>
-          // Parse the line
-          val result = ProtocolParser.parse(line, state)
-          println(s"Parse line : ${line} result = $result")
-
-          result match {
-            case Parsed(value, nextState) =>
-              val event = Event.parse(Parsed(value, nextState))
-              println(s"Event : $event")
-
-              event match {
-                case Some(DimensionReplication(_)) =>
-                  acc ++ event.toList
-
-                case _ =>
-                  parseLines(nextState, acc ++ event.toList)
-              }
-
-            case Continue(nextState) =>
-              // For Continue results, just keep parsing with the next state
-              parseLines(nextState, acc)
+    def loop(state: ParseState, acc: List[Command]): List[Command] = {
+      if (!buf.hasRemaining) acc
+      else RespStreamParser.parse(buf, state) match {
+        case (Parsed(RespArray(elements), _), _) =>
+          val tokens = elements.collect { case RespBulkString(b) => new String(b, StandardCharsets.UTF_8) }.toVector
+          loop(WaitingForCommand, acc ++ Command.fromArgs(tokens).toList)
+        case (Incomplete, _) =>
+          if (buf.hasRemaining) {
+            leftover = new Array[Byte](buf.remaining())
+            buf.get(leftover)
           }
-
-        case None =>
-          // No more lines to parse
           acc
+        case (ParseError(_), _) => acc
+        case (_, nextState) => loop(nextState, acc)
       }
     }
 
-    parseLines(parsingState)
-
-     */
-    List.empty[Event]
+    loop(WaitingForCommand, List.empty)
   }
 
+  def processResponse(data: Array[Byte]): List[Event] = List.empty[Event]
+
+  def write(data: Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
+
   def close(): Unit = {
-    println("Closing connection")
+    Logger.info(s"Closing connection ${socketChannel.getRemoteAddress}")
     socketChannel.close()
     key.cancel()
   }
 
-  // Parse normal commands (after handshake complete)
-  private def parseNormalCommands(): List[Event] = {
-    /*
-    println("PARSE NORMAL COMMAND AFTER HANDSHAKE")
-    @tailrec
-    def parseLines(state: ParseState, acc: List[Event] = List.empty): List[Event] = {
-      lineParser.nextLine() match {
-        case Some(line) =>
-          println(s"Parse the line : ${line}")
-          val result = ProtocolParser.parse(line, state)
-
-          // Handle the result based on type
-          result match {
-            case Parsed(value, nextState) =>
-              // Extract event for Parsed results
-              val event = Event.parse(Parsed(value, nextState))
-              parseLines(nextState, acc ++ event.toList)
-
-            case Continue(nextState) =>
-              // For Continue results, just keep parsing with the next state
-              parseLines(nextState, acc)
-          }
-
-        case None =>
-          println("No more lines to parse")
-          acc
-      }
-    }
-
-    parseLines(parsingState)
-
-     */
-    List.empty[Event]
-  }
-
-
-  def process(parserState: ParseState) : ParserResult = {
-    /*
-    @tailrec
-    def processNextLine(currentState: ParseState): ParserResult = {
-      lineParser.nextLine() match {
-        case Some(line) =>
-          println(s"line = ${line} going to parse")
-          val result = ProtocolParser.parse(line, currentState)
-
-          result match {
-            case parsed: Parsed =>
-              println(s"Parsed $parsed")
-              parsed
-            case Continue(nextState) => processNextLine(nextState)
-          }
-
-        case None => Continue(currentState)
-      }
-    }
-    processNextLine(parserState)
-
-     */
-    Continue(parserState)
-  }
-
-
-  def write(data : Array[Byte]): Int = socketChannel.write(ByteBuffer.wrap(data))
-
-  def getLastData: String = {
-    //println(s"lineparser = ${lineParser}")
-    //lineParser.remaining()
-    ""
-  }
-
-  def skipBytes(bytes: Int) : Unit = {
-    //println(s"lineparser = ${lineParser}")
-    //lineParser.skip(bytes)
-    ""
-  }
+  def skipBytes(bytes: Int): Unit = {}
 }
-
-
-
-object Connection {
-  def apply(socketChannel: SocketChannel, initialState: ParseState = WaitingForCommand(), key: SelectionKey) : Connection = {
-    val connection = Connection(socketChannel, initialState, key)
-    connection
-  }
-}
-

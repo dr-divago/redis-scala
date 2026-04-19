@@ -8,4 +8,6 @@
 
 set -e # Exit on failure
 
-sbt assembly
+scala-cli package src/main/scala/ \
+  -q --power --assembly --force --server=false --scala-version=3.8.3 \
+  -o /tmp/codecrafters-build-redis-scala

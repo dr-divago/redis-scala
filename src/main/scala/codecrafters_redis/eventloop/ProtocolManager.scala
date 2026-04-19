@@ -1,5 +1,6 @@
 package codecrafters_redis.eventloop
 
+import codecrafters_redis.Logger
 import codecrafters_redis.command._
 
 import java.nio.channels.SocketChannel
@@ -68,24 +69,24 @@ case class ParseRDBFile(dimension: Option[Int] = None, bytesReceived: Int = 0) e
   override def handleEvent(event: Event, context: ReplicationContext): (State, Action) = {
     event match {
       case DimensionReplication(dim) =>
-        println(s"Parse RDB file dimension $dim")
+        Logger.debug(s"RDB dimension: $dim bytes")
         (ParseRDBFile(Some(dim)), NoAction)
 
       case RdbDataReceived(data) =>
         dimension match {
           case Some(dim) =>
             val totalBytesReceived = bytesReceived + data.length
-            println(s"RDB data received: $totalBytesReceived/$dim bytes")
+            Logger.debug(s"RDB data: $totalBytesReceived/$dim bytes")
 
             if (totalBytesReceived >= dim) {
-              println("RDB file completely received, handshake complete")
+              Logger.info("RDB received, handshake complete")
               (HandshakeComplete, SkipRdbFileAction(dim))
             } else {
               (ParseRDBFile(Some(dim), totalBytesReceived), NoAction)
             }
 
           case None =>
-            println("Received RDB data but dimension is unknown")
+            Logger.warn("Received RDB data but dimension is unknown")
             (this, NoAction)
         }
 
@@ -106,21 +107,18 @@ sealed trait Action {
   def execute(connection: Connection) : Unit
 }
 case object NoAction extends Action {
-  override def execute(connection: Connection): Unit = {
-    println("No Action to execute")
-  }
+  override def execute(connection: Connection): Unit = {}
 }
 case object SendPingCommand extends Action {
   override def execute(connection: Connection): Unit = {
-    println("Sending PING command to master")
-    val pingCommand = "*1\r\n$4\r\nPING\r\n"
-    connection.write(pingCommand.getBytes)
+    Logger.info("Sending PING to master")
+    connection.write("*1\r\n$4\r\nPING\r\n".getBytes)
   }
 }
 
-case class SendReplConfListeningCommand(port : Int) extends Action {
+case class SendReplConfListeningCommand(port: Int) extends Action {
   override def execute(connection: Connection): Unit = {
-    println(s"Sending REPLCONF listening-port $port command")
+    Logger.info(s"Sending REPLCONF listening-port $port")
     val portStr = port.toString
     val command = s"*3\r\n$$8\r\nREPLCONF\r\n$$14\r\nlistening-port\r\n$$${portStr.length}\r\n$portStr\r\n"
     connection.write(command.getBytes)
@@ -129,9 +127,8 @@ case class SendReplConfListeningCommand(port : Int) extends Action {
 
 case object SendReplConfCapa extends Action {
   def execute(connection: Connection): Unit = {
-    println("Sending REPLCONF capa command")
-    val command = "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
-    connection.write(command.getBytes)
+    Logger.info("Sending REPLCONF capa psync2")
+    connection.write("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n".getBytes)
   }
 }
 
@@ -157,23 +154,18 @@ object ProtocolManager {
     ReplicationState(Connecting, ReplicationContext(connection))
   }
 
-  def processEvent(currentState : ReplicationState, events : List[Event]): (ReplicationState, List[Action]) = {
-    if (events.isEmpty) {
-       return (currentState, List.empty[Action])
-    }
+  def processEvent(currentState: ReplicationState, events: List[Event]): (ReplicationState, List[Action]) = {
+    if (events.isEmpty) return (currentState, List.empty[Action])
 
     events.foldLeft(currentState, List.empty[Action]) {
       case ((state, actionList), event) =>
         val (newState, action) = state.state.handle(event, currentState.context)
-        println(s"New state ${newState.name} action to execute ${action.toString}")
+        Logger.debug(s"Replication state: ${newState.name}")
         (ReplicationState(newState, state.context), actionList :+ action)
     }
   }
 
-  def executeAction(actions: List[Action], context: ReplicationContext) : Unit = {
-    println(s"Executing ${actions.toString} with channel ${context.connection}")
-    actions.foreach { action =>
-      println(s"Executing ${actions.toString} with channel ${context.connection}")
-      action.execute(context.connection)}
+  def executeAction(actions: List[Action], context: ReplicationContext): Unit = {
+    actions.foreach(_.execute(context.connection))
   }
 }

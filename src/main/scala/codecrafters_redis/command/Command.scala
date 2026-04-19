@@ -1,5 +1,6 @@
 package codecrafters_redis.command
 
+import codecrafters_redis.Logger
 import codecrafters_redis.config.Context
 import codecrafters_redis.db.{ExpiresIn, NeverExpires}
 import codecrafters_redis.protocol.{Continue, Parsed, ParserResult}
@@ -7,6 +8,7 @@ import codecrafters_redis.protocol.{Continue, Parsed, ParserResult}
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
+import java.nio.file.{Files, Paths}
 import scala.collection.mutable
 import scala.util.Try
 
@@ -24,17 +26,19 @@ case class Echo(message: String) extends Command {
 case class Set(key: String, value: String, expiry: Option[Int] = None) extends Command {
   override def execute(context: Context): Array[Byte] = {
     context.getDB.add(key, value, expiry.map(ExpiresIn(_)).getOrElse(NeverExpires()))
-    println(s"SET keys ${context.getDB.keys()}")
-    propagateToReplicas(key, value, context.replicaChannels)
+    Logger.debug(s"SET keys ${context.getDB.keys()}")
+    val (failed, cmdBytes) = propagateToReplicas(key, value, context.replicaChannels)
+    if (failed.nonEmpty) {
+      context.replicaChannels = context.replicaChannels.filterNot(failed.toSet)
+    }
+    context.incrementReplOffset(cmdBytes)
     "+OK\r\n".getBytes
   }
 
-  private def propagateToReplicas(key: String, value: String, replicaChannels: mutable.Seq[SocketChannel]) = {
-    val command = s"*3\r\n$$3\r\nSET\r\n$$${key.length}\r\n$key\r\n$$${value.length}\r\n$value\r\n"
-
-    println(s"********* PROPAGATE TO REPLICAS ${command} ********** ")
-    val buffer = ByteBuffer.wrap(command.getBytes)
-
+  private def propagateToReplicas(key: String, value: String, replicaChannels: collection.Seq[SocketChannel]): (Seq[SocketChannel], Int) = {
+    val commandBytes = s"*3\r\n$$3\r\nSET\r\n$$${key.length}\r\n$key\r\n$$${value.length}\r\n$value\r\n".getBytes
+    Logger.debug(s"Propagating SET to ${replicaChannels.size} replica(s)")
+    val buffer = ByteBuffer.wrap(commandBytes)
     val failedChannels = mutable.ArrayBuffer[SocketChannel]()
 
     for (ch <- replicaChannels) {
@@ -43,25 +47,18 @@ case class Set(key: String, value: String, expiry: Option[Int] = None) extends C
         buffer.rewind()
       } catch {
         case _: IOException =>
-          println(s"Failed to propagate to replica ${ch.socket().getInetAddress}")
-          try {
-            ch.close()
-          } catch {
-            case _ : IOException =>
-          }
+          Logger.error(s"Failed to propagate to replica ${ch.socket().getInetAddress}")
+          try { ch.close() } catch { case _: IOException => }
           failedChannels += ch
       }
     }
-    if (failedChannels.nonEmpty) {
-      println("ERRORE PROPAGATE COMMAND")
-    }
+    (failedChannels.toSeq, commandBytes.length)
   }
 }
 
 case class Get(key: String) extends Command {
   override def execute(context: Context): Array[Byte] = {
-    println(s"Command GET $key")
-    println(s"KEYS: ${context.getDB.keys()}")
+    Logger.debug(s"GET $key")
     context.getDB.get(key) match {
       case Some(value) => s"$$${value.length}\r\n$value\r\n".getBytes
       case None => "$-1\r\n".getBytes
@@ -105,8 +102,29 @@ case object ReplicationConfig extends Command {
 case object Psync extends Command {
   override def execute(context: Context): Array[Byte] = {
     val masterId = context.getMasterId
-    s"+FULLRESYNC $masterId ${context.getMasterReplOffset}\r\n$$88\r\n".getBytes
+    val rdbSize = Files.size(Paths.get("empty.rdb"))
+    s"+FULLRESYNC $masterId ${context.getMasterReplOffset}\r\n$$${rdbSize}\r\n".getBytes
   }
+}
+
+case object ReplConfGetAck extends Command {
+  override def execute(context: Context): Array[Byte] = {
+    val offsetStr = context.replicaOffset.toString
+    s"*3\r\n$$8\r\nREPLCONF\r\n$$3\r\nACK\r\n$$${offsetStr.length}\r\n$offsetStr\r\n".getBytes
+  }
+}
+
+case class ReplConfAck(offset: Long) extends Command {
+  override def execute(context: Context): Array[Byte] = Array.empty
+}
+
+case class Wait(numReplicas: Int, timeoutMs: Long) extends Command {
+  override def execute(context: Context): Array[Byte] = Array.empty
+}
+
+case class UnknownCommand(tokens: Vector[String]) extends Command {
+  override def execute(context: Context): Array[Byte] =
+    s"-ERR unknown command '${tokens.headOption.getOrElse("")}'\r\n".getBytes
 }
 
 
@@ -122,7 +140,10 @@ object Command {
 
   private val setParser : PartialFunction[Vector[String], Command] = {
     case Vector("SET", key, value) => Set(key, value)
-    case Vector("SET", key, value, "px", milliseconds) if Try(milliseconds.toInt).isSuccess => Set(key, value, Some(milliseconds.toInt))
+    case Vector("SET", key, value, px, ms) if px.equalsIgnoreCase("px") && Try(ms.toInt).isSuccess =>
+      Set(key, value, Some(ms.toInt))
+    case Vector("SET", key, value, ex, secs) if ex.equalsIgnoreCase("ex") && Try(secs.toInt).isSuccess =>
+      Set(key, value, Some(secs.toInt * 1000))
   }
 
   private val getParser : PartialFunction[Vector[String], Command] = {
@@ -144,10 +165,17 @@ object Command {
   private val replicationConfParser : PartialFunction[Vector[String], Command] = {
     case Vector("REPLCONF", "listening-port", _) => ReplicationConfig
     case Vector("REPLCONF", "capa", "psync2") => ReplicationConfig
+    case Vector("REPLCONF", "GETACK", _) => ReplConfGetAck
+    case Vector("REPLCONF", "ACK", offset) if Try(offset.toLong).isSuccess => ReplConfAck(offset.toLong)
   }
 
   private val psyncParser : PartialFunction[Vector[String], Command] = {
     case Vector("PSYNC", "?", _) => Psync
+  }
+
+  private val waitParser : PartialFunction[Vector[String], Command] = {
+    case Vector("WAIT", n, t) if Try(n.toInt).isSuccess && Try(t.toLong).isSuccess =>
+      Wait(n.toInt, t.toLong)
   }
 
   private val parsers: List[PartialFunction[Vector[String], Command]] = List(
@@ -159,7 +187,8 @@ object Command {
     keysParser,
     infoParser,
     replicationConfParser,
-    psyncParser
+    psyncParser,
+    waitParser
   )
 
   private val commandParser : PartialFunction[Vector[String], Command] = {
@@ -172,7 +201,9 @@ object Command {
     case Continue(_) => None
   }
 
-  private def fromArgs(args: Vector[String]): Option[Command]= {
-    if (commandParser.isDefinedAt(args)) Some(commandParser(args)) else None
+  def fromArgs(args: Vector[String]): Option[Command] = {
+    if (commandParser.isDefinedAt(args)) Some(commandParser(args))
+    else if (args.nonEmpty) Some(UnknownCommand(args))
+    else None
   }
 }

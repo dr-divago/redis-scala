@@ -1,5 +1,6 @@
 package codecrafters_redis.command
 
+import codecrafters_redis.Logger
 import codecrafters_redis.protocol.{Continue, Parsed, ParserResult}
 
 import scala.util.Try
@@ -30,7 +31,7 @@ object Event {
 
   private val dimensionReplication : PartialFunction[Vector[String], Event] = {
     case Vector(dim) if Try(dim.toInt).isSuccess =>
-      println(s"DIM $dim")
+      Logger.debug(s"DimensionReplication dim=$dim")
       DimensionReplication(dim.toInt)
   }
 
@@ -51,7 +52,7 @@ object Event {
     case Continue(_) => None
   }
 
-  private def fromArgs(args: Vector[String]): Option[Event]= {
+  def fromArgs(args: Vector[String]): Option[Event] = {
     if (commandParser.isDefinedAt(args)) Some(commandParser(args)) else None
   }
 }

@@ -7,7 +7,9 @@ import java.io.File
 import java.net.Socket
 import java.nio.channels.SocketChannel
 import java.nio.file.{Files, Paths}
-import scala.collection.mutable
+import java.security.SecureRandom
+import scala.collection.concurrent.TrieMap
+import scala.collection.immutable.Vector
 
 case class Context(config: Config,
                    masterSocket: Option[Socket] = None) {
@@ -50,21 +52,34 @@ case class Context(config: Config,
     }
   }
 
-  def getMasterReplOffset : String = {
-    "0"
+  private val _masterId: String = {
+    val bytes = new Array[Byte](20)
+    new SecureRandom().nextBytes(bytes)
+    bytes.map(b => f"${b & 0xff}%02x").mkString
   }
 
-  def getMasterIdStr : String = {
-    s"master_replid:$getMasterId"
-  }
+  @volatile private var _masterReplOffset: Long = 0
 
-  def getMasterId : String = {
-    "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-  }
+  def getMasterReplOffset: String = _masterReplOffset.toString
 
-  var replicaChannels: mutable.Seq[SocketChannel] = mutable.ArrayBuffer[SocketChannel]()
+  def incrementReplOffset(bytes: Int): Unit = { _masterReplOffset += bytes }
+
+  def getMasterIdStr: String = s"master_replid:$getMasterId"
+
+  def getMasterId: String = _masterId
+
+  @volatile var replicaChannels: Vector[SocketChannel] = Vector.empty
+
+  @volatile var replicaOffset: Long = 0
+
+  val replicaAckOffsets: TrieMap[SocketChannel, Long] = TrieMap.empty
 
   def isReplica: Boolean = {
     config.replicaof.nonEmpty
   }
+
+  def syncedReplicaCount(targetOffset: Long): Int =
+    replicaAckOffsets.count { case (_, off) => off >= targetOffset }
+
+  def masterReplOffsetLong: Long = _masterReplOffset
 }

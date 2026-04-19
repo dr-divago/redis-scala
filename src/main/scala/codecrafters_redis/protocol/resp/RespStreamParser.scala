@@ -20,6 +20,10 @@ object RespStreamParser {
           case '+' => parseRespValue(buffer, state, s => RespString(s))
           case ':' => parseRespValue(buffer, state, s => RespInteger(s.toLong))
           case '-' => parseRespValue(buffer, state, s => RespError(s))
+          case '$' => parseRespBulkString(buffer, state)
+          case c =>
+            buffer.get()
+            (Error(s"Unexpected byte: '$c' (0x${(c.toByte & 0xff).toHexString})"), WaitingForCommand)
         }
 
       case WaitingForNextElement(elements, remaining, consumedBytes) =>
@@ -52,6 +56,35 @@ object RespStreamParser {
         (Incomplete, state)
     }
 
+  }
+
+  private def parseRespBulkString(buffer: ByteBuffer, state: ParseState) = {
+    val initialPos = buffer.position()
+    buffer.get() // consume '$'
+    findCRLF(buffer) match {
+      case Some(crlfPos) =>
+        val lengthStr = extractElement(buffer, crlfPos)
+        val length = lengthStr.toInt
+        if (length == -1) {
+          buffer.position(crlfPos + 2)
+          (Parsed(RespNullBulkString(), 1 + lengthStr.length + 2), WaitingForCommand)
+        } else {
+          buffer.position(crlfPos + 2)
+          if (buffer.remaining() < length + 2) {
+            buffer.position(initialPos)
+            (Incomplete, state)
+          } else {
+            val contentBytes = new Array[Byte](length)
+            buffer.get(contentBytes)
+            buffer.position(buffer.position() + 2) // skip \r\n after content
+            val consumed = 1 + lengthStr.length + 2 + length + 2
+            (Parsed(RespBulkString(contentBytes), consumed), WaitingForCommand)
+          }
+        }
+      case None =>
+        buffer.position(initialPos)
+        (Incomplete, state)
+    }
   }
 
   private def parseRespValue(buffer: ByteBuffer, state: ParseState, value : String => RespValue) = {
