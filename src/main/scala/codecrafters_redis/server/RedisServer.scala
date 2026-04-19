@@ -158,14 +158,19 @@ class ReplicaResultHandler(context: Context, initialState: ReplicationState) ext
     var keepParsing = true
     while (keepParsing && buf.hasRemaining) {
       val startPos = buf.position()
-      RespStreamParser.parse(buf, WaitingForCommand) match {
-        case (Parsed(RespString(s), _), _) =>
-          Event.fromArgs(s.split(" ").toVector).foreach(events += _)
-        case (Parsed(RespBulkString(bytes), _), _) =>
-          events += DimensionReplication(bytes.length)
-          events += RdbDataReceived(bytes)
-        case (Incomplete, _) =>
-          buf.position(startPos)
+      buf.get(buf.position()).toChar match {
+        case '+' =>
+          RespStreamParser.parse(buf, WaitingForCommand) match {
+            case (Parsed(RespString(s), _), _) =>
+              Event.fromArgs(s.split(" ").toVector).foreach(events += _)
+            case (Incomplete, _) =>
+              buf.position(startPos)
+              keepParsing = false
+            case _ =>
+              buf.position(startPos)
+              keepParsing = false
+          }
+        case '$' =>
           tryParseRawRdb(buf) match {
             case Some(rdbBytes) =>
               events += DimensionReplication(rdbBytes.length)
@@ -174,7 +179,6 @@ class ReplicaResultHandler(context: Context, initialState: ReplicationState) ext
               keepParsing = false
           }
         case _ =>
-          buf.position(startPos)
           keepParsing = false
       }
     }
