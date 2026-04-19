@@ -31,7 +31,7 @@ case object PingHandshake extends State {
   def name : String = "PING_HANDSHAKE"
 
   override def handleEvent(event: Event, context: ReplicationContext): (State, Action) = event match {
-    case PongEvent => (ReplConfListingPortFirst, SendReplConfListeningCommand(context.connection.socketChannel.socket().getPort))
+    case PongEvent => (ReplConfListingPortFirst, SendReplConfListeningCommand(context.replicaPort))
     case _ => (this, NoAction)
   }
 }
@@ -143,15 +143,15 @@ case class SkipRdbFileAction(bytesToSkip : Int) extends Action {
   override def execute(connection: Connection): Unit = connection.skipBytes(bytesToSkip)
 }
 
-case class ReplicationContext(connection: Connection)
+case class ReplicationContext(connection: Connection, replicaPort: Int)
 case class ReplicationState(state: State, context : ReplicationContext) {
   def isHandshakeDone: Boolean = state == HandshakeComplete
   def isMasterConnection(client: SocketChannel) : Boolean = context.connection.socketChannel.eq(client)
 }
 
 object ProtocolManager {
-  def apply(connection: Connection): ReplicationState = {
-    ReplicationState(Connecting, ReplicationContext(connection))
+  def apply(connection: Connection, replicaPort: Int): ReplicationState = {
+    ReplicationState(Connecting, ReplicationContext(connection, replicaPort))
   }
 
   def processEvent(currentState: ReplicationState, events: List[Event]): (ReplicationState, List[Action]) = {

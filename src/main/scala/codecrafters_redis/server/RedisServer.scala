@@ -333,7 +333,7 @@ object RedisServer {
     val connectionToMaster = Connection(masterChannel, key)
     serverContext.connections.addOne(masterChannel, connectionToMaster)
 
-    val initialState = ProtocolManager(connectionToMaster)
+    val initialState = ProtocolManager(connectionToMaster, config.port.toInt)
 
     if (connected) {
       val (newState, actions) = ProtocolManager.processEvent(initialState, List(ConnectionEstablished))
