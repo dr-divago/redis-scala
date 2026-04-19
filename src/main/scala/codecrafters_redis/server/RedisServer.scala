@@ -125,6 +125,15 @@ class ReplicaResultHandler(context: Context, initialState: ReplicationState) ext
               val (newState, actions) = ProtocolManager.processEvent(replicationState, events)
               ProtocolManager.executeAction(actions, newState.context)
               replicationState = newState
+              if (newState.isHandshakeDone && handshakeAccum.size() > 0) {
+                val buffered = handshakeAccum.toByteArray
+                handshakeAccum.reset()
+                val cmds = connection.process(buffered)
+                cmds.foreach {
+                  case ReplConfGetAck => connection.write(ReplConfGetAck.execute(context))
+                  case cmd => cmd.execute(context)
+                }
+              }
             }
           }
         } else {
@@ -165,6 +174,7 @@ class ReplicaResultHandler(context: Context, initialState: ReplicationState) ext
               keepParsing = false
           }
         case _ =>
+          buf.position(startPos)
           keepParsing = false
       }
     }
